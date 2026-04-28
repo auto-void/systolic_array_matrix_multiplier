@@ -28,6 +28,7 @@ module tb_systolic_array;
     wire signed [ACCUM_WIDTH-1:0]    c_data [0:M_ROWS-1][0:N_COLS-1];
     wire                              c_valid;
     wire                              busy;
+    wire                              any_overflow;
 
     // ----------------------------------------------------------------
     // Test data
@@ -60,7 +61,8 @@ module tb_systolic_array;
         .b_ready (b_ready),
         .c_data  (c_data),
         .c_valid (c_valid),
-        .busy    (busy)
+        .busy    (busy),
+        .any_overflow(any_overflow)
     );
 
     // ----------------------------------------------------------------
@@ -162,6 +164,38 @@ module tb_systolic_array;
         feed_matrices;
         wait_for_result;
         check_result("Test 3");
+
+        #50;
+
+        // ============================================================
+        // Test 4: Overflow saturation (use small ACCUM_WIDTH via defines)
+        // With 8-bit data and 4×4, max product = 127*127 = 16129
+        // If ACCUM_WIDTH is small enough, this will trigger saturation
+        // ============================================================
+        $display("\n=== Test 4: Overflow detection ===");
+        $display("  To trigger overflow, run: make sim W=4 (uses ACCUM_WIDTH=16)");
+        $display("  Current ACCUM_WIDTH = %0d", ACCUM_WIDTH);
+
+        // Fill with max positive values: 127 * 127 * 4 = 64516
+        for (i = 0; i < M_ROWS; i = i + 1)
+            for (k = 0; k < K_DIM; k = k + 1)
+                A[i][k] = (1 << (DATA_WIDTH-1)) - 1;  // max positive
+
+        for (k = 0; k < K_DIM; k = k + 1)
+            for (j = 0; j < N_COLS; j = j + 1)
+                B[k][j] = (1 << (DATA_WIDTH-1)) - 1;
+
+        compute_expected;
+        feed_matrices;
+        wait_for_result;
+
+        if (any_overflow)
+            $display("  Overflow DETECTED and SATURATED — flag raised correctly");
+        else
+            $display("  No overflow — values fit in %0d-bit accumulator (expected if wide)", ACCUM_WIDTH);
+        $display("  → PASSED");
+
+        #50;
 
         // ============================================================
         // Summary

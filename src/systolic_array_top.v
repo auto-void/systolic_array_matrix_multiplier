@@ -25,7 +25,8 @@ module systolic_array_top #(
     output wire                     b_ready,
     output wire signed [ACCUM_WIDTH-1:0] c_data [0:M_ROWS-1][0:N_COLS-1],
     output wire                     c_valid,
-    output wire                     busy
+    output wire                     busy,
+    output wire                     any_overflow
 );
 
     systolic_array #(
@@ -45,7 +46,8 @@ module systolic_array_top #(
         .b_ready (b_ready),
         .c_data  (c_data),
         .c_valid (c_valid),
-        .busy    (busy)
+        .busy    (busy),
+        .any_overflow(any_overflow)
     );
 
 endmodule

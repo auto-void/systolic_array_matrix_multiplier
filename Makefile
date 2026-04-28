@@ -25,8 +25,10 @@ TB       := $(TB_DIR)/tb_systolic_array.v
 TB_GEN   := $(BUILD)/tb_systolic_array.v
 VVP_OUT  := $(BUILD)/systolic_array.vvp
 VCD_OUT  := $(BUILD)/systolic_array.vcd
+OVF_TB   := $(TB_DIR)/tb_overflow.v
+OVF_VVP  := $(BUILD)/overflow.vvp
 
-.PHONY: all sim wave clean help
+.PHONY: all sim overflow wave clean help
 
 all: sim
 
@@ -50,6 +52,13 @@ $(VVP_OUT): $(SRCS) $(TB_GEN)
 sim: $(VVP_OUT)
 	$(VVP) $<
 
+# Overflow test
+$(OVF_VVP): $(SRCS) $(OVF_TB) | $(BUILD)
+	$(IVERILOG) -g2012 -o $@ $^
+
+overflow: $(OVF_VVP)
+	$(VVP) $<
+
 # Open waveform
 wave: sim
 	$(GTKWAVE) $(VCD_OUT) &
@@ -66,5 +75,6 @@ help:
 	@echo "  make sim M=8 K=8 N=8  - 8×8 × 8×8 matrix multiply"
 	@echo "  make sim M=3 K=5 N=7  - 3×5 × 5×7 matrix multiply"
 	@echo "  make sim W=16         - 16-bit data width"
+	@echo "  make overflow         - Overflow/saturation test (4-bit data, 8-bit accum)"
 	@echo "  make wave             - Run simulation and open GTKWave"
 	@echo "  make clean            - Remove build artifacts"

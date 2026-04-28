@@ -39,7 +39,8 @@ module systolic_array #(
     // Result output
     output wire signed [ACCUM_WIDTH-1:0] c_data [0:M_ROWS-1][0:N_COLS-1],
     output reg                      c_valid,
-    output wire                     busy
+    output wire                     busy,
+    output wire                     any_overflow  // OR of all PE overflow flags
 );
 
     // ----------------------------------------------------------------
@@ -49,6 +50,7 @@ module systolic_array #(
     wire signed [DATA_WIDTH-1:0] pe_b_out [0:M_ROWS-1][0:N_COLS-1];
     wire signed [DATA_WIDTH-1:0] pe_a_in  [0:M_ROWS-1][0:N_COLS-1];
     wire signed [DATA_WIDTH-1:0] pe_b_in  [0:M_ROWS-1][0:N_COLS-1];
+    wire        pe_overflow [0:M_ROWS-1][0:N_COLS-1];
 
     // FSM
     localparam S_IDLE   = 2'd0;
@@ -162,11 +164,25 @@ module systolic_array #(
                     .b_in      (pe_b_in[gi][gj]),
                     .a_out     (pe_a_out[gi][gj]),
                     .b_out     (pe_b_out[gi][gj]),
-                    .result    (c_data[gi][gj])
+                    .result    (c_data[gi][gj]),
+                    .overflow  (pe_overflow[gi][gj])
                 );
 
             end
         end
     endgenerate
+
+    // ----------------------------------------------------------------
+    // Overflow aggregation
+    // ----------------------------------------------------------------
+    reg ovf_accum;
+    integer oi, oj;
+    always @(*) begin
+        ovf_accum = 1'b0;
+        for (oi = 0; oi < M_ROWS; oi = oi + 1)
+            for (oj = 0; oj < N_COLS; oj = oj + 1)
+                ovf_accum = ovf_accum | pe_overflow[oi][oj];
+    end
+    assign any_overflow = ovf_accum;
 
 endmodule

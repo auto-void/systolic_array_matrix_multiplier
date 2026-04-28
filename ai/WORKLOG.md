@@ -24,6 +24,37 @@
 
 ---
 
+## [2026-04-29] MiMo (xiaomi/mimo-v2.5-pro) — Phase 1.1: 溢出检测与饱和运算
+
+### 修改内容
+- **src/pe.v** — 增加溢出检测和饱和逻辑
+  - 检测 `accum + product` 的正溢出和负溢出
+  - 溢出时 clamp 到 `SAT_MAX`/`SAT_MIN` 而非 wrap
+  - 增加 `overflow` 标志（sticky，清零时复位）
+  - 使用独立的 `product` wire 提高可读性
+
+- **src/systolic_array.v** — 暴露溢出信号
+  - 收集所有 PE 的 `overflow` 标志
+  - 输出 `any_overflow`（OR 归约）
+
+- **src/systolic_array_top.v** — 传递 `any_overflow`
+
+- **tb/tb_overflow.v** — 专用溢出测试台
+  - 4-bit 数据、8-bit 累加器
+  - (-8)×(-8) + (-8)×(-8) = 128 → 饱和到 127
+
+- **tb/tb_systolic_array.v** — 增加溢出检测测试用例
+
+- **Makefile** — 增加 `make overflow` 目标
+
+### 设计决策
+- overflow 标志是 sticky 的（一旦触发保持到清零），避免瞬时溢出被遗漏
+- 饱和逻辑在累加器更新时判断，而非结果输出时
+- 正溢出和负溢出分开检测（同号相加异号结果）
+
+### 已知问题
+- 未实际仿真验证（无 iverilog）
+
 ## [2026-04-29] MiMo (xiaomi/mimo-v2.5-pro) — 初始实现
 
 ### 修改内容
