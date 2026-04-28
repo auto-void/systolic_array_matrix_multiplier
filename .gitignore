@@ -1,0 +1,7 @@
+build/
+*.vcd
+*.vvp
+*.gtkw
+*.swp
+*~
+.DS_Store
