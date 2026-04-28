@@ -45,7 +45,11 @@ module systolic_array #(
     // Result readout — address-based single-element access
     input  wire [$clog2(M_ROWS)-1:0] row_sel,      // row address
     input  wire [$clog2(N_COLS)-1:0] col_sel,      // column address
-    output wire signed [ACCUM_WIDTH-1:0] c_read_data  // selected element
+    output wire signed [ACCUM_WIDTH-1:0] c_read_data, // selected element
+
+    // Status outputs
+    output wire [31:0]              cycle_count,   // total cycles since start
+    output wire [7:0]               overflow_count // number of PEs that overflowed
 );
 
     // ----------------------------------------------------------------
@@ -212,5 +216,27 @@ module systolic_array #(
                 ovf_accum = ovf_accum | pe_overflow[oi][oj];
     end
     assign any_overflow = ovf_accum;
+
+    // Overflow count — how many PEs overflowed
+    reg [7:0] ovf_cnt;
+    always @(*) begin
+        ovf_cnt = 0;
+        for (oi = 0; oi < M_ROWS; oi = oi + 1)
+            for (oj = 0; oj < N_COLS; oj = oj + 1)
+                ovf_cnt = ovf_cnt + pe_overflow[oi][oj];
+    end
+    assign overflow_count = ovf_cnt;
+
+    // Cycle counter — counts from start of feed to result valid
+    reg [31:0] cyc_cnt;
+    always @(posedge clk or negedge rst_n) begin
+        if (!rst_n)
+            cyc_cnt <= 0;
+        else if (state == S_IDLE && state_next == S_FEED)
+            cyc_cnt <= 0;
+        else if (busy)
+            cyc_cnt <= cyc_cnt + 1;
+    end
+    assign cycle_count = cyc_cnt;
 
 endmodule

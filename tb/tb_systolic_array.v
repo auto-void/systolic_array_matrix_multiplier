@@ -32,6 +32,8 @@ module tb_systolic_array;
     reg  [$clog2(M_ROWS)-1:0]        row_sel;
     reg  [$clog2(N_COLS)-1:0]        col_sel;
     wire signed [ACCUM_WIDTH-1:0]    c_read_data;
+    wire [31:0]                       cycle_count;
+    wire [7:0]                        overflow_count;
 
     // ----------------------------------------------------------------
     // Test data
@@ -68,7 +70,9 @@ module tb_systolic_array;
         .any_overflow(any_overflow),
         .row_sel (row_sel),
         .col_sel (col_sel),
-        .c_read_data(c_read_data)
+        .c_read_data(c_read_data),
+        .cycle_count(cycle_count),
+        .overflow_count(overflow_count)
     );
 
     // ----------------------------------------------------------------
@@ -130,6 +134,8 @@ module tb_systolic_array;
         feed_matrices;
         wait_for_result;
         check_result("Test 1");
+        $display("  Computation took %0d cycles (expected: %0d)",
+                 cycle_count, M_ROWS + N_COLS + K_DIM);
 
         #50;
 
