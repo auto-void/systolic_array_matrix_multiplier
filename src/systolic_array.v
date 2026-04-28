@@ -36,11 +36,16 @@ module systolic_array #(
     input  wire                     b_valid,
     output wire                     b_ready,                   // array accepts B
 
-    // Result output
+    // Result output — full matrix (directly from PE accumulators)
     output wire signed [ACCUM_WIDTH-1:0] c_data [0:M_ROWS-1][0:N_COLS-1],
     output reg                      c_valid,
     output wire                     busy,
-    output wire                     any_overflow  // OR of all PE overflow flags
+    output wire                     any_overflow,  // OR of all PE overflow flags
+
+    // Result readout — address-based single-element access
+    input  wire [$clog2(M_ROWS)-1:0] row_sel,      // row address
+    input  wire [$clog2(N_COLS)-1:0] col_sel,      // column address
+    output wire signed [ACCUM_WIDTH-1:0] c_read_data  // selected element
 );
 
     // ----------------------------------------------------------------
@@ -171,6 +176,29 @@ module systolic_array #(
             end
         end
     endgenerate
+
+    // ----------------------------------------------------------------
+    // Result register bank — latches final values when c_valid asserts
+    // Keeps results stable even after next computation starts
+    // ----------------------------------------------------------------
+    reg signed [ACCUM_WIDTH-1:0] result_bank [0:M_ROWS-1][0:N_COLS-1];
+
+    always @(posedge clk or negedge rst_n) begin
+        if (!rst_n) begin : rst_bank
+            integer ri, rj;
+            for (ri = 0; ri < M_ROWS; ri = ri + 1)
+                for (rj = 0; rj < N_COLS; rj = rj + 1)
+                    result_bank[ri][rj] <= {ACCUM_WIDTH{1'b0}};
+        end else if (c_valid) begin : latch_bank
+            integer ri, rj;
+            for (ri = 0; ri < M_ROWS; ri = ri + 1)
+                for (rj = 0; rj < N_COLS; rj = rj + 1)
+                    result_bank[ri][rj] <= c_data[ri][rj];
+        end
+    end
+
+    // Address-based readout mux
+    assign c_read_data = result_bank[row_sel][col_sel];
 
     // ----------------------------------------------------------------
     // Overflow aggregation

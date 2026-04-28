@@ -29,6 +29,9 @@ module tb_systolic_array;
     wire                              c_valid;
     wire                              busy;
     wire                              any_overflow;
+    reg  [$clog2(M_ROWS)-1:0]        row_sel;
+    reg  [$clog2(N_COLS)-1:0]        col_sel;
+    wire signed [ACCUM_WIDTH-1:0]    c_read_data;
 
     // ----------------------------------------------------------------
     // Test data
@@ -62,7 +65,10 @@ module tb_systolic_array;
         .c_data  (c_data),
         .c_valid (c_valid),
         .busy    (busy),
-        .any_overflow(any_overflow)
+        .any_overflow(any_overflow),
+        .row_sel (row_sel),
+        .col_sel (col_sel),
+        .c_read_data(c_read_data)
     );
 
     // ----------------------------------------------------------------
@@ -87,6 +93,8 @@ module tb_systolic_array;
         rst_n  = 0;
         a_valid = 0;
         b_valid = 0;
+        row_sel = 0;
+        col_sel = 0;
 
         // Initialize data inputs to zero
         for (i = 0; i < M_ROWS; i = i + 1)
@@ -168,11 +176,46 @@ module tb_systolic_array;
         #50;
 
         // ============================================================
-        // Test 4: Overflow saturation (use small ACCUM_WIDTH via defines)
+        // Test 4: Result readout via address select
+        // ============================================================
+        $display("\n=== Test 4: Address-based readout ===");
+
+        // Re-run Test 1 to get known values in result_bank
+        for (i = 0; i < M_ROWS; i = i + 1)
+            for (k = 0; k < K_DIM; k = k + 1)
+                A[i][k] = i + k + 1;
+        for (k = 0; k < K_DIM; k = k + 1)
+            for (j = 0; j < N_COLS; j = j + 1)
+                B[k][j] = k + j + 1;
+        compute_expected;
+        feed_matrices;
+        wait_for_result;
+
+        // Read each element via address mux and compare
+        for (i = 0; i < M_ROWS; i = i + 1) begin
+            for (j = 0; j < N_COLS; j = j + 1) begin
+                row_sel = i;
+                col_sel = j;
+                #1;  // combinational settle
+                if (c_read_data !== expected_C[i][j]) begin
+                    $display("  READOUT MISMATCH at [%0d][%0d]: expected=%0d, got=%0d",
+                             i, j, expected_C[i][j], c_read_data);
+                    errors = errors + 1;
+                end
+            end
+        end
+        if (errors == 0)
+            $display("  All %0d elements read correctly via address mux", M_ROWS * N_COLS);
+        $display("  → PASSED");
+
+        #50;
+
+        // ============================================================
+        // Test 5: Overflow saturation (use small ACCUM_WIDTH via defines)
         // With 8-bit data and 4×4, max product = 127*127 = 16129
         // If ACCUM_WIDTH is small enough, this will trigger saturation
         // ============================================================
-        $display("\n=== Test 4: Overflow detection ===");
+        $display("\n=== Test 5: Overflow detection ===");
         $display("  To trigger overflow, run: make sim W=4 (uses ACCUM_WIDTH=16)");
         $display("  Current ACCUM_WIDTH = %0d", ACCUM_WIDTH);
 

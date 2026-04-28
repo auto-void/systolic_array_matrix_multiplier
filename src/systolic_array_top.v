@@ -26,7 +26,10 @@ module systolic_array_top #(
     output wire signed [ACCUM_WIDTH-1:0] c_data [0:M_ROWS-1][0:N_COLS-1],
     output wire                     c_valid,
     output wire                     busy,
-    output wire                     any_overflow
+    output wire                     any_overflow,
+    input  wire [$clog2(M_ROWS)-1:0] row_sel,
+    input  wire [$clog2(N_COLS)-1:0] col_sel,
+    output wire signed [ACCUM_WIDTH-1:0] c_read_data
 );
 
     systolic_array #(
@@ -47,7 +50,10 @@ module systolic_array_top #(
         .c_data  (c_data),
         .c_valid (c_valid),
         .busy    (busy),
-        .any_overflow(any_overflow)
+        .any_overflow(any_overflow),
+        .row_sel (row_sel),
+        .col_sel (col_sel),
+        .c_read_data(c_read_data)
     );
 
 endmodule
