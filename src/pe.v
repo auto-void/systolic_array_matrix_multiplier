@@ -68,11 +68,14 @@ module pe #(
     end
 
     // Pass data to neighbors (pipeline registers)
+    // Decoupled from accumulation enable: data always flows through
+    // the pipeline so zeros propagate during DRAIN phase, preventing
+    // stale values from lingering in the array.
     always @(posedge clk or negedge rst_n) begin
         if (!rst_n) begin
             a_out <= {DATA_WIDTH{1'b0}};
             b_out <= {DATA_WIDTH{1'b0}};
-        end else if (en) begin
+        end else begin
             a_out <= a_in;
             b_out <= b_in;
         end
