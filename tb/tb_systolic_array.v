@@ -44,7 +44,7 @@ module tb_systolic_array;
     reg signed [ACCUM_WIDTH-1:0]  golden_C   [0:M_ROWS-1][0:N_COLS-1];
 
     integer errors;
-    integer i, j, k;
+    integer i, j, k, t;
 
     // ----------------------------------------------------------------
     // DUT instantiation
@@ -243,6 +243,57 @@ module tb_systolic_array;
         else
             $display("  No overflow — values fit in %0d-bit accumulator (expected if wide)", ACCUM_WIDTH);
         $display("  → PASSED");
+
+        #50;
+
+        // ============================================================
+        // Test 6: Back-to-back computation
+        // ============================================================
+        $display("\n=== Test 6: Back-to-back computation ===");
+
+        // First computation
+        for (i = 0; i < M_ROWS; i = i + 1)
+            for (k = 0; k < K_DIM; k = k + 1)
+                A[i][k] = i + k + 1;
+        for (k = 0; k < K_DIM; k = k + 1)
+            for (j = 0; j < N_COLS; j = j + 1)
+                B[k][j] = k + j + 1;
+        compute_expected;
+        feed_matrices;
+        wait_for_result;
+        check_result("Test 6a (first)");
+
+        // Immediately start second computation (no IDLE wait)
+        for (i = 0; i < M_ROWS; i = i + 1)
+            for (k = 0; k < K_DIM; k = k + 1)
+                A[i][k] = (i + 1) * (k + 1);
+        for (k = 0; k < K_DIM; k = k + 1)
+            for (j = 0; j < N_COLS; j = j + 1)
+                B[k][j] = (k + 1) * (j + 1);
+        compute_expected;
+
+        // Feed immediately — the array should accept if in S_DONE
+        wait (!busy);
+        @(posedge clk);
+        for (i = 0; i < M_ROWS; i = i + 1)
+            a_data[i] = A[i][0];
+        for (j = 0; j < N_COLS; j = j + 1)
+            b_data[j] = B[0][j];
+        a_valid = 1; b_valid = 1;
+        for (t = 1; t < K_DIM; t = t + 1) begin
+            @(posedge clk);
+            for (i = 0; i < M_ROWS; i = i + 1)
+                a_data[i] = A[i][t];
+            for (j = 0; j < N_COLS; j = j + 1)
+                b_data[j] = B[t][j];
+        end
+        @(posedge clk);
+        a_valid = 0; b_valid = 0;
+        for (i = 0; i < M_ROWS; i = i + 1) a_data[i] = 0;
+        for (j = 0; j < N_COLS; j = j + 1) b_data[j] = 0;
+
+        wait_for_result;
+        check_result("Test 6b (back-to-back)");
 
         #50;
 

@@ -98,7 +98,8 @@ module systolic_array #(
             S_IDLE:   if (a_valid && b_valid) state_next = S_FEED;
             S_FEED:   if (feed_done)          state_next = S_DRAIN;
             S_DRAIN:  if (drain_done)         state_next = S_DONE;
-            S_DONE:   state_next = S_IDLE;
+            S_DONE:   if (a_valid && b_valid) state_next = S_FEED;  // back-to-back
+                      else                    state_next = S_IDLE;
             default:  state_next = S_IDLE;
         endcase
     end
