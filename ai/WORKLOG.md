@@ -24,6 +24,38 @@
 
 ---
 
+## [2026-04-29] MiMo — 全面代码审查：发现 5 个 bug
+
+### 修改内容
+- **ai/BUGS.md** — 新建 bug 追踪文件，记录 5 个已发现的 bug
+
+### 发现的 Bug
+
+1. 🔴 **Testbench 数据设置时序偏移** (`tb_systolic_array.v`)
+   - 数据在 `@(posedge clk)` 之后设置，组合逻辑边界读到旧值
+   - 导致所有 PE 结果偏小，PE(0,0)=29 vs 期望 30
+
+2. 🔴 **`en` 信号延迟 1 周期** (`systolic_array.v`)
+   - `en = (state == S_FEED)` 使用当前状态，NBA 更新导致比状态转移晚 1 拍
+   - 首个周期数据被边界读到但 PE 不累加
+
+3. 🔴 **Overflow TB 同样的时序竞态** (`tb_overflow.v`)
+   - 与 Bug 1 相同模式，期望 128 饱和到 127，实际只得到 64
+
+4. 🟡 **`$clog2(1)=0` 零宽度端口** (`systolic_array.v`)
+   - M_ROWS=1 或 N_COLS=1 时端口位宽为 0
+
+5. 🟢 **注释过时** (`systolic_array.v`)
+   - FEED_CYCLES 注释仍写旧公式 `K+max(M,N)-1`
+
+### 根因分析
+- Bug 1+2 叠加是所有仿真失败的根因
+- Bug 1：testbench 数据晚 1 周期 → 边界读到上一拍数据
+- Bug 2：en 信号晚 1 周期 → 首数据丢失
+- 两者叠加：丢失 A[0][0]×B[0][0]=1，且每个 PE 都少累加约 1 个乘积
+
+---
+
 ## [2026-04-29] MiMo — 修复 FEED_CYCLES 不足导致数据对齐 1-cycle offset bug
 
 ### 问题
