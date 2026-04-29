@@ -118,7 +118,8 @@ FSM 状态机：
 | DATA_WIDTH | 数据位宽 | PE 内部乘法器大小 |
 | ACCUM_WIDTH | 累加器位宽 | 需足够容纳 K 次累加不溢出 |
 
-建议：`ACCUM_WIDTH >= DATA_WIDTH * 2 + $clog2(K_DIM)`
+建议：`ACCUM_WIDTH >= DATA_WIDTH * 2 + $clog2(K_DIM)`（保守安全值）
+Makefile 默认使用 `ACCUM_WIDTH = DATA_WIDTH * 4`（更宽裕，溢出概率更低）
 
 ## 5. 接口协议
 

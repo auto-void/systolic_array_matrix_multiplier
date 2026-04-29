@@ -172,12 +172,12 @@ Cycle 1:  FEED 开始，feed_cnt=0，边界输出 A[i][0]/B[0][j]
 Cycle 2:  feed_cnt=1，错开喂入（A[i][1]/B[1][j] + 流水传播）
 Cycle 3:  feed_cnt=2
   ...
-Cycle 8:  feed_cnt=7，边界输出最后有效数据
-Cycle 9:  feed_cnt=8，PE 完成最后累加
-Cycle 10: DRAIN，c_valid 有效，结果就绪
+Cycle 9:  feed_cnt=8
+Cycle 10: feed_cnt=9，边界输出最后有效数据
+Cycle 11: DRAIN，c_valid 有效，结果就绪
 ```
 
-FEED_CYCLES = K + M + N - 2 = 10，总延迟 = 11 周期。
+FEED_CYCLES = K + M + N - 2 = 10（feed_cnt 0~9），总延迟 = K + M + N - 1 = 11 周期。
 
 ## 已知问题
 

@@ -318,8 +318,8 @@
 - [ ] 删除各文档间的重复段落，改为交叉引用
 
 ### 47. DESIGN.md / README.md 信息纠错
-- [ ] README 时序示例 off-by-one（4×4×4 的 feed_cnt 应为 0~9，不是 0~7）
-- [ ] DESIGN.md ACCUM_WIDTH 建议与 Makefile 默认值不一致（`2*W+clog2(K)` vs `4*W`）
+- [x] README 时序示例 off-by-one（4×4×4 的 feed_cnt 应为 0~9，不是 0~7）(2026-04-29)
+- [x] DESIGN.md ACCUM_WIDTH 建议与 Makefile 默认值不一致（`2*W+clog2(K)` vs `4*W`）(2026-04-29)
 - [ ] 统一所有文档中的时序描述，单一真相源
 
 ### 48. BUGS.md 增加复现步骤
