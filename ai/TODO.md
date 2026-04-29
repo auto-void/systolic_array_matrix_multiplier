@@ -10,13 +10,11 @@
 
 > 所有后续工作的前提。当前阻塞项：数据对齐 1-cycle offset bug。
 
-### 1. 数据对齐 bug 修复（当前阻塞项）
+### 1. 数据对齐 bug 修复
 - [x] 定位根因：A/B 到达时间差 j-i 个周期
 - [x] 实施错开喂入 (staggered feeding) 方案
-- [ ] **修复残留 1 周期偏移**（PE(0,0) 结果差 1，见 WORKLOG）
-  - 可能原因：testbench 数据设置与组合逻辑边界读取之间的竞争
-  - 调试方法：加 `$display` 监视 `dut.pe_a_in[0][0]`/`dut.pe_b_in[0][0]`/`dut.u_pe[0][0].accum`
-- [ ] `make sim` 默认 4×4×4 全部 PASS
+- [x] **修复 FEED_CYCLES 不足**（根因：`K+max(M,N)-1` 应为 `K+M+N-2`）
+- [ ] `make sim` 默认 4×4×4 全部 PASS（需 iverilog 验证）
 - [ ] `make sim M=8 K=8 N=8` 大矩阵通过
 - [ ] `make sim M=3 K=5 N=7` 矩形矩阵通过
 - [ ] `make sim W=16` 不同位宽通过

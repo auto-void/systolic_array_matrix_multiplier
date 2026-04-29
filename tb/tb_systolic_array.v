@@ -234,10 +234,8 @@ module tb_systolic_array;
             wait (!busy);
             @(posedge clk);
 
-            fc = K_DIM;
-            if (M_ROWS > fc) fc = M_ROWS;
-            if (N_COLS > fc) fc = N_COLS;
-            fc = fc + K_DIM - 1;
+            // FEED_CYCLES = K + M + N - 2 (matching RTL)
+            fc = K_DIM + M_ROWS + N_COLS - 2;
 
             // Set data for cycle 0
             for (ii = 0; ii < M_ROWS; ii = ii + 1)

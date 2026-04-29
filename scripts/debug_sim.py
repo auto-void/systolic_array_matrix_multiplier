@@ -10,8 +10,8 @@ import sys
 M_ROWS = 4
 K_DIM  = 4
 N_COLS = 4
-FEED_CYCLES  = K_DIM + max(M_ROWS, N_COLS) - 1  # 7
-DRAIN_CYCLES = max(M_ROWS, N_COLS)                # 4
+FEED_CYCLES  = K_DIM + M_ROWS + N_COLS - 2   # 10 (fixed)
+DRAIN_CYCLES = 1
 
 # ─── Test 1 data ───
 A = [[i + k + 1 for k in range(K_DIM)] for i in range(M_ROWS)]

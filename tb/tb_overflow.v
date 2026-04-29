@@ -74,10 +74,7 @@ module tb_overflow;
         wait (!busy); @(posedge clk);
 
         // Staggered feed: A[i][k] at cycle c=k+i, B[k][j] at cycle c=k+j
-        feed_cycles = K_DIM;
-        if (M_ROWS > feed_cycles) feed_cycles = M_ROWS;
-        if (N_COLS > feed_cycles) feed_cycles = N_COLS;
-        feed_cycles = feed_cycles + K_DIM - 1;
+        feed_cycles = K_DIM + M_ROWS + N_COLS - 2;
 
         a_valid = 1; b_valid = 1;
         for (c = 0; c < feed_cycles; c = c + 1) begin

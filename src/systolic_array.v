@@ -68,19 +68,19 @@ module systolic_array #(
     localparam S_DONE   = 2'd3;
 
     reg [1:0]  state, state_next;
-    reg [$clog2(K_DIM+N_COLS+1)-1:0] feed_cnt;
+    reg [$clog2(K_DIM+M_ROWS+N_COLS+1)-1:0] feed_cnt;
     reg [$clog2(M_ROWS+N_COLS+K_DIM+2)-1:0] drain_cnt;
 
     // FEED phase: data is staggered — A[i][k] enters at cycle k+i, B[k][j] at k+j
-    // Last data enters at cycle K_DIM-1 + max(M_ROWS-1, N_COLS-1)
-    // Total FEED cycles = K_DIM + max(M_ROWS, N_COLS) - 1
-    localparam FEED_CYCLES = K_DIM + (M_ROWS > N_COLS ? M_ROWS : N_COLS) - 1;
+    // Boundary is combinational, but PE accumulates on the NEXT posedge.
+    // PE(i,j) accumulates at cycle k+i+j+1. Last accumulation:
+    // PE(M-1,N-1) at cycle (K-1)+(M-1)+(N-1)+1 = K+M+N-2.
+    // en must be high for cycles 0..K+M+N-3, so FEED_CYCLES = K+M+N-2.
+    localparam FEED_CYCLES = K_DIM + M_ROWS + N_COLS - 2;
     wire feed_done  = (feed_cnt == FEED_CYCLES - 1);
-    // DRAIN: pipeline flush after last data enters. Last PE(i,j) accumulates
-    // at cycle K_DIM-1+max(M-1,N-1)+max(i,j), worst case PE(M-1,N-1) at
-    // cycle K_DIM-1+max(M-1,N-1)+max(M-1,N-1). Plus 1 for result register.
-    // Simplification: DRAIN = max(M_ROWS, N_COLS) cycles.
-    localparam DRAIN_CYCLES = (M_ROWS > N_COLS ? M_ROWS : N_COLS);
+    // DRAIN: no additional flush needed — all data accumulated by FEED end.
+    // Just 1 cycle for c_valid to latch.
+    localparam DRAIN_CYCLES = 1;
     wire drain_done = (drain_cnt == DRAIN_CYCLES - 1);
 
     assign busy   = (state != S_IDLE) && (state != S_DONE);

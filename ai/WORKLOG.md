@@ -24,6 +24,61 @@
 
 ---
 
+## [2026-04-29] MiMo — 修复 FEED_CYCLES 不足导致数据对齐 1-cycle offset bug
+
+### 问题
+
+所有测试中，右下区域 PE 结果偏小。PE(0,0) 少 1（期望 30 得 29），PE(3,3) 少 110（期望 126 得 16）。
+
+### 根因
+
+**FEED_CYCLES 计算错误**。
+
+原公式：`FEED_CYCLES = K + max(M, N) - 1`
+
+数据流时序：
+1. 边界组合逻辑在周期 `c` 输出数据
+2. PE 在下一个 posedge（周期 `c+1`）累加
+3. 最后一次累加：PE(M-1,N-1) 在周期 `(K-1)+(M-1)+(N-1)+1 = K+M+N-2`
+4. `en` 必须在周期 `K+M+N-3` 仍然为高
+5. 因此 `FEED_CYCLES = K+M+N-2`
+
+原公式 `K+max(M,N)-1` 比正确值小 `min(M,N)-1` 个周期。数据在最后一个 FEED 周期进入边界，但要到 DRAIN 阶段才到达 PE，此时 `en` 已变低。
+
+影响范围：所有 `i+j >= max(M,N)` 的 PE 都丢失最后 `min(M,N)-1` 个乘积。
+
+### 修改内容
+
+**src/systolic_array.v**
+- `FEED_CYCLES` 从 `K+max(M,N)-1` 改为 `K+M+N-2`
+- `DRAIN_CYCLES` 从 `max(M,N)` 改为 `1`（所有数据在 FEED 阶段已累积完毕）
+- `feed_cnt` 位宽相应调整
+
+**tb/tb_systolic_array.v**
+- `fc` 计算从 `max(K,M,N)+K-1` 改为 `K+M+N-2`
+
+**tb/tb_overflow.v**
+- `feed_cycles` 同步修改
+
+**scripts/debug_sim.py** — Python 仿真器，复现并验证修复
+**scripts/verify_bug.py** — FEED_CYCLES 计算验证
+**scripts/verify_fix.py** — 多尺寸矩阵验证（11 组全部 PASS）
+
+### 验证
+
+Python 仿真验证：
+- 4×4×4：全部 16 个 PE 结果正确（修复前 6 个错误）
+- 11 种矩阵尺寸全部 PASS（含 1×1×1、矩形 3×5×7、8×8×8 等）
+
+### 设计决策
+
+为什么 DRAIN_CYCLES 改为 1：
+- 原设计 DRAIN 用于"流水线排空"，但 staggered feeding 下数据在 FEED 阶段已经全部到达 PE
+- DRAIN 阶段 `en=0`，PE 不累加，只用于 `c_valid` 信号
+- 1 个周期足够让 `c_valid` 在 `drain_done` 时断言
+
+---
+
 ## [2026-04-29] MiMo — 工作流程优化
 
 ### 修改内容
