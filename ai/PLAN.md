@@ -35,7 +35,7 @@ Phase 7: 应用层          → CNN、Transformer 等实际场景
 - **产出**：仿真日志保存到 `docs/sim_log_*.txt`
 - **复杂度**：低
 - **预计**：0.5 小时
-- **状态**：🟡 进行中（FEED_CYCLES bug 已修复，Python 验证通过，待 iverilog 仿真确认）
+- **状态**：🔴 阻塞（FEED_CYCLES 已修复，但新发现 TB 时序偏移 + en 信号延迟两个 bug，详见 `ai/BUGS.md`）
 - **依赖**：无（这是第一步）
 
 ### 0.2 溢出测试验证

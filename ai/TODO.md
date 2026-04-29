@@ -8,13 +8,16 @@
 
 ## 🔴 高优先级 — Phase 0: 验证闭环
 
-> 所有后续工作的前提。FEED_CYCLES bug 已修复，待 iverilog 仿真确认。
+> 所有后续工作的前提。FEED_CYCLES bug 已修复，但新发现 Bug 1+2 导致仿真仍失败。
+> 详见 `ai/BUGS.md`。
 
 ### 1. 数据对齐 bug 修复
 - [x] 定位根因：A/B 到达时间差 j-i 个周期
 - [x] 实施错开喂入 (staggered feeding) 方案
 - [x] **修复 FEED_CYCLES 不足**（根因：`K+max(M,N)-1` 应为 `K+M+N-2`）
-- [ ] `make sim` 默认 4×4×4 全部 PASS（需 iverilog 验证）
+- [ ] **修复 Bug 1**：TB 数据设置时序偏移 1 周期（`tb_systolic_array.v`）
+- [ ] **修复 Bug 2**：`en` 信号延迟 1 周期（`systolic_array.v`）
+- [ ] `make sim` 默认 4×4×4 全部 PASS
 - [ ] `make sim M=8 K=8 N=8` 大矩阵通过
 - [ ] `make sim M=3 K=5 N=7` 矩形矩阵通过
 - [ ] `make sim W=16` 不同位宽通过

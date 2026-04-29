@@ -39,6 +39,8 @@ B[k][j] 到达 PE(i,j) 并被累加的时间 = k + i + j + 1
   - `pe_b_in[0][j] = B[feed_cnt - j][j]`（当 `feed_cnt >= j` 且 `feed_cnt - j < K_DIM`）
   - 其余时刻输出 0
 
+**Testbench 时序要求**：数据必须在 `@(posedge clk)` **之前**设置，确保组合逻辑边界在该边沿读到正确值。若在 `@(posedge clk)` 之后才设置，边界会读到上一拍的旧数据（见 `ai/BUGS.md` Bug 1）。
+
 ### 2.3 内部传播
 
 - A 数据：从左到右，每经过一个 PE 延迟 1 周期（寄存器传递）
