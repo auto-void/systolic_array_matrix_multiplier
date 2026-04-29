@@ -22,31 +22,24 @@ GTKWAVE  := gtkwave
 # Files
 SRCS     := $(SRC_DIR)/pe.v $(SRC_DIR)/systolic_array.v
 TB       := $(TB_DIR)/tb_systolic_array.v
-TB_GEN   := $(BUILD)/tb_systolic_array.v
 VVP_OUT  := $(BUILD)/systolic_array.vvp
 VCD_OUT  := $(BUILD)/systolic_array.vcd
 OVF_TB   := $(TB_DIR)/tb_overflow.v
 OVF_VVP  := $(BUILD)/overflow.vvp
 
+# Parameter flags for iverilog
+DEFINES  := -DM_ROWS=$(M) -DK_DIM=$(K) -DN_COLS=$(N) -DDATA_WIDTH=$(W) -DACCUM_WIDTH=$(AW)
+
 .PHONY: all sim overflow wave clean help
 
 all: sim
 
-# Generate parameterized testbench
-$(TB_GEN): $(TB) | $(BUILD)
-	@sed -e "s/parameter M_ROWS     = [0-9]*/parameter M_ROWS     = $(M)/" \
-	     -e "s/parameter K_DIM      = [0-9]*/parameter K_DIM      = $(K)/" \
-	     -e "s/parameter N_COLS     = [0-9]*/parameter N_COLS     = $(N)/" \
-	     -e "s/parameter DATA_WIDTH = [0-9]*/parameter DATA_WIDTH = $(W)/" \
-	     -e "s/parameter ACCUM_WIDTH = [0-9]*/parameter ACCUM_WIDTH = $(AW)/" \
-	     $< > $@
-
 # Compile
-$(VVP_OUT): $(SRCS) $(TB_GEN)
+$(VVP_OUT): $(SRCS) $(TB) | $(BUILD)
 	@echo "========================================="
 	@echo " M=$(M) K=$(K) N=$(N) W=$(W) AW=$(AW)"
 	@echo "========================================="
-	$(IVERILOG) -g2012 -o $@ $^
+	$(IVERILOG) -g2012 $(DEFINES) -o $@ $^
 
 # Simulate
 sim: $(VVP_OUT)

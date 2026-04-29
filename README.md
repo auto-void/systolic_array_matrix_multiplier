@@ -179,6 +179,8 @@ Cycle 11: DRAIN，c_valid 有效，结果就绪
 
 FEED_CYCLES = K + M + N - 2 = 10（feed_cnt 0~9），总延迟 = K + M + N - 1 = 11 周期。
 
+> 详细时序分析见 `ai/DESIGN.md` 第 2-3 节。
+
 ## 已知问题
 
 见 `ai/BUGS.md`。当前主要问题：

@@ -9,11 +9,11 @@
 
 module tb_systolic_array;
 
-    parameter M_ROWS     = 4;
-    parameter K_DIM      = 4;
-    parameter N_COLS     = 4;
-    parameter DATA_WIDTH = 8;
-    parameter ACCUM_WIDTH = 32;
+    parameter M_ROWS     = `ifdef M_ROWS     `M_ROWS     `else 4 `endif;
+    parameter K_DIM      = `ifdef K_DIM      `K_DIM      `else 4 `endif;
+    parameter N_COLS     = `ifdef N_COLS     `N_COLS     `else 4 `endif;
+    parameter DATA_WIDTH = `ifdef DATA_WIDTH `DATA_WIDTH `else 8 `endif;
+    parameter ACCUM_WIDTH = `ifdef ACCUM_WIDTH `ACCUM_WIDTH `else 32 `endif;
 
     reg                              clk;
     reg                              rst_n;

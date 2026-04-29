@@ -152,7 +152,7 @@ module systolic_array #(
     //   pe_a_in[i][0] = A[i][c-i] if c >= i and c-i < K_DIM, else 0
     //   pe_b_in[0][j] = B[c-j][j] if c >= j and c-j < K_DIM, else 0
     //
-    // Total FEED cycles = K_DIM + max(M_ROWS, N_COLS) - 1
+    // Total FEED cycles = K_DIM + M_ROWS + N_COLS - 2
     // Both boundaries are combinational (no extra registers).
     genvar gi, gj;
     generate

@@ -46,6 +46,12 @@ end
 
 **状态**：⬜ 待修复
 
+**复现**：
+```bash
+make sim
+# 观察输出：PE(0,0) = 29（期望 30），所有 PE 系统性偏小
+```
+
 ---
 
 ## 🔴 Bug 2：`en` 信号延迟 1 周期，导致首个数据丢失
@@ -66,6 +72,8 @@ posedge 5: state=S_FEED, en=1, 边界读到 cycle 1 数据 → PE 累积 4
 - **方案 B**（改 TB）：在进入 feed 循环前提前 1 周期设置 cycle 0 数据
 
 **状态**：⬜ 待修复
+
+**复现**：同 Bug 1（两者叠加），`make sim` 即可观察到。
 
 ---
 
@@ -89,6 +97,12 @@ end
 
 **状态**：⬜ 待修复
 
+**复现**：
+```bash
+make overflow
+# 观察输出：C[i][j] = 64（期望 127 饱和），只累加了 1 个乘积
+```
+
 ---
 
 ## 🟡 Bug 4：`$clog2(1)` = 0 导致零宽度端口
@@ -110,6 +124,13 @@ input  wire [($clog2(N_COLS) > 0 ? $clog2(N_COLS) : 1) - 1:0] col_sel,
 
 **状态**：⬜ 待修复
 
+**复现**：
+```bash
+# 修改 tb_systolic_array.v 参数为 M_ROWS=1, N_COLS=1，然后：
+make sim
+# iverilog 报错：port size mismatch 或零宽度端口
+```
+
 ---
 
 ## 🟢 Bug 5：DESIGN.md 注释与实际代码不一致
@@ -124,7 +145,9 @@ input  wire [($clog2(N_COLS) > 0 ? $clog2(N_COLS) : 1) - 1:0] col_sel,
 
 **修复**：更新注释匹配代码。
 
-**状态**：⬜ 待修复
+**状态**：✅ 已修复（2026-04-29，注释改为 `K_DIM + M_ROWS + N_COLS - 2`）
+
+**复现**：`grep "max(M_ROWS, N_COLS)" src/systolic_array.v` — 应该找不到匹配（旧注释已删）。
 
 ---
 

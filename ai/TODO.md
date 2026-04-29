@@ -309,27 +309,27 @@
 > 同一信息多处记录、状态不同步。需要一次性整理清楚。
 
 ### 46. 文档职责去重
-- [ ] **DESIGN.md** = 架构决策（只写"为什么"和"是什么"）
-- [ ] **BUGS.md** = bug 状态追踪（唯一真相源，含复现步骤）
-- [ ] **TODO.md** = 待办清单（只列任务，不重复 bug 细节）
-- [ ] **PLAN.md** = 长期路线图（只列里程碑和依赖，不列具体任务，与 TODO 合并或明确分工）
-- [ ] **WORKLOG.md** = 历史记录（只写"做了什么"，格式严格统一：改动文件 + 验证结果）
-- [ ] **AGENTS.md** = 工作流程规范（只写规则，不写项目具体内容）
-- [ ] 删除各文档间的重复段落，改为交叉引用
+- [x] **DESIGN.md** = 架构决策（只写"为什么"和"是什么"）(2026-04-29)
+- [x] **BUGS.md** = bug 状态追踪（唯一真相源，含复现步骤）(2026-04-29)
+- [x] **TODO.md** = 待办清单（只列任务，不重复 bug 细节）
+- [x] **PLAN.md** = 长期路线图（只列里程碑和依赖，不列具体任务，与 TODO 合并或明确分工）
+- [x] **WORKLOG.md** = 历史记录（只写"做了什么"，格式严格统一：改动文件 + 验证结果）(2026-04-29)
+- [x] **AGENTS.md** = 工作流程规范（只写规则，不写项目具体内容）(2026-04-29)
+- [x] 删除各文档间的重复段落，改为交叉引用 (2026-04-29)
 
 ### 47. DESIGN.md / README.md 信息纠错
 - [x] README 时序示例 off-by-one（4×4×4 的 feed_cnt 应为 0~9，不是 0~7）(2026-04-29)
 - [x] DESIGN.md ACCUM_WIDTH 建议与 Makefile 默认值不一致（`2*W+clog2(K)` vs `4*W`）(2026-04-29)
-- [ ] 统一所有文档中的时序描述，单一真相源
+- [x] 统一所有文档中的时序描述，单一真相源 (2026-04-29)
 
 ### 48. BUGS.md 增加复现步骤
-- [ ] 每个 bug 增加 `make sim` 复现命令和期望/实际输出
-- [ ] 新 AI 进来能直接验证 bug 是否还存在
+- [x] 每个 bug 增加 `make sim` 复现命令和期望/实际输出 (2026-04-29)
+- [x] 新 AI 进来能直接验证 bug 是否还存在 (2026-04-29)
 
 ### 49. AGENTS.md 精简 + 拆分
-- [ ] AGENTS.md 精简到 50 行：核心规则 + 优先级
-- [ ] 拆出 `ai/DEBUG_GUIDE.md`：debug 流程 + 常见陷阱（需要时才读）
-- [ ] 拆出 `ai/STYLE_GUIDE.md`：commit 规范 + 代码风格（需要时才读）
+- [x] AGENTS.md 精简到 50 行：核心规则 + 优先级 (2026-04-29)
+- [x] 拆出 `ai/DEBUG_GUIDE.md`：debug 流程 + 常见陷阱（需要时才读）(2026-04-29)
+- [x] 拆出 `ai/STYLE_GUIDE.md`：commit 规范 + 代码风格（需要时才读）(2026-04-29)
 
 ### 50. 增加 QUICKSTART.md
 - [x] 一页纸：项目是什么（3 句话）+ 文件结构（一图）+ 开始前跑什么 + 改完后跑什么 (2026-04-29)
@@ -341,36 +341,35 @@
 ## 🟡 中优先级 — Phase 10: 开发实践优化
 
 ### 51. Pre-commit hook
-- [ ] `.git/hooks/pre-commit`：commit 前自动跑 `make sim`
-- [ ] 仿真失败则拒绝 commit
-- [ ] 防止"改了代码忘了跑仿真就 commit"
+- [x] `.git/hooks/pre-commit`：commit 前自动跑 `make sim` (2026-04-29)
+- [x] 仿真失败则拒绝 commit (2026-04-29)
+- [x] 防止"改了代码忘了跑仿真就 commit" (2026-04-29)
 
 ### 52. Commit 粒度规范
-- [ ] 一个 commit 一个逻辑变更（不混 RTL 修复 + 文档更新）
-- [ ] 在 STYLE_GUIDE.md 中明确规范
-- [ ] 示例：`fix: PE a_out/b_out 解耦` 和 `fix: tb_overflow 补全端口` 分开提交
+- [x] 一个 commit 一个逻辑变更（不混 RTL 修复 + 文档更新）(2026-04-29)
+- [x] 在 STYLE_GUIDE.md 中明确规范 (2026-04-29)
+- [x] 示例：`fix: PE a_out/b_out 解耦` 和 `fix: tb_overflow 补全端口` 分开提交 (2026-04-29)
 
 ### 53. Branch 策略
-- [ ] `main` = 稳定版本，仿真全部通过
-- [ ] `fix/*` = bug 修复分支
-- [ ] `feat/*` = 新功能分支
-- [ ] `docs/*` = 文档分支
-- [ ] 修完测完再合入 main
+- [x] `main` = 稳定版本，仿真全部通过 (2026-04-29)
+- [x] `fix/*` = bug 修复分支 (2026-04-29)
+- [x] `feat/*` = 新功能分支 (2026-04-29)
+- [x] `docs/*` = 文档分支 (2026-04-29)
+- [x] 修完测完再合入 main (2026-04-29)
 
 ### 54. Makefile 去 sed 改 -D
-- [ ] 去掉脆弱的 `sed` 参数替换
-- [ ] 改用 `iverilog -DM_ROWS=$(M) -DK_DIM=$(K) ...`
-- [ ] TB 中用 `` `ifdef `` / `` `define `` 接收参数
-- [ ] 避免 TB 代码格式变化导致 sed 失效
+- [x] 去掉脆弱的 `sed` 参数替换 (2026-04-29)
+- [x] 改用 `iverilog -DM_ROWS=$(M) -DK_DIM=$(K) ...` (2026-04-29)
+- [x] TB 中用 `` `ifdef `` / `` `define `` 接收参数 (2026-04-29)
+- [x] 避免 TB 代码格式变化导致 sed 失效 (2026-04-29)
 
 ### 55. Python 脚本统一入口
-- [ ] 合并 `scripts/` 下 4 个独立脚本为统一入口
-- [ ] `python3 scripts/sim.py --mode sim|debug|verify --size MxKxN`
-- [ ] 或通过 Makefile 统一调度：`make debug` / `make verify`
+- [x] 合并 `scripts/` 下独立脚本为统一入口 (2026-04-29)
+- [x] `python3 scripts/sim.py sim|debug|verify|sizes` (2026-04-29)
 
 ### 56. .editorconfig
-- [ ] 统一 Verilog 代码格式：4 空格缩进、LF 换行
-- [ ] 避免混合 tab/空格
+- [x] 统一 Verilog 代码格式：4 空格缩进、LF 换行 (2026-04-29)
+- [x] 避免混合 tab/空格 (2026-04-29)
 
 ---
 

@@ -47,21 +47,15 @@ echo " M=$M_ROWS  K=$K_DIM  N=$N_COLS"
 echo " DATA_WIDTH=$DATA_WIDTH  ACCUM_WIDTH=$ACCUM_WIDTH"
 echo "============================================"
 
-# Generate parameterized testbench
-TB_GEN="$BUILD_DIR/tb_systolic_array.v"
-sed -e "s/parameter M_ROWS     = [0-9]*/parameter M_ROWS     = $M_ROWS/" \
-    -e "s/parameter K_DIM      = [0-9]*/parameter K_DIM      = $K_DIM/" \
-    -e "s/parameter N_COLS     = [0-9]*/parameter N_COLS     = $N_COLS/" \
-    -e "s/parameter DATA_WIDTH = [0-9]*/parameter DATA_WIDTH = $DATA_WIDTH/" \
-    -e "s/parameter ACCUM_WIDTH = [0-9]*/parameter ACCUM_WIDTH = $ACCUM_WIDTH/" \
-    "$TB_DIR/tb_systolic_array.v" > "$TB_GEN"
-
-# Compile
+# Compile (using -D flags, no sed)
 echo "[1/3] Compiling..."
-iverilog -g2012 -o "$BUILD_DIR/systolic_array.vvp" \
+iverilog -g2012 \
+    -DM_ROWS=$M_ROWS -DK_DIM=$K_DIM -DN_COLS=$N_COLS \
+    -DDATA_WIDTH=$DATA_WIDTH -DACCUM_WIDTH=$ACCUM_WIDTH \
+    -o "$BUILD_DIR/systolic_array.vvp" \
     "$SRC_DIR/pe.v" \
     "$SRC_DIR/systolic_array.v" \
-    "$TB_GEN"
+    "$TB_DIR/tb_systolic_array.v"
 
 # Simulate
 echo "[2/3] Simulating..."

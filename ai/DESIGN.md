@@ -1,5 +1,11 @@
 # DESIGN.md — 架构设计文档
 
+> **职责**：只写"为什么"和"是什么"。
+> - 工作流程 → `ai/AGENTS.md`
+> - Bug 状态 → `ai/BUGS.md`
+> - 待办事项 → `ai/TODO.md`
+> - 工作日志 → `ai/WORKLOG.md`
+
 ## 1. 算法背景
 
 脉动阵列（Systolic Array）是一种规则的数据流计算架构，特别适合矩阵乘法。
