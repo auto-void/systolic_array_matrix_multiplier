@@ -11,7 +11,7 @@ module tb_overflow;
     parameter K_DIM      = 2;
     parameter N_COLS     = 2;
     parameter DATA_WIDTH = 4;   // -8 to 7
-    parameter ACCUM_WIDTH = 8;  // -128 to 127, overflow after ~4 products
+    parameter ACCUM_WIDTH = 8;  // -128 to 127
 
     reg                              clk, rst_n;
     reg  signed [DATA_WIDTH-1:0]     a_data [0:M_ROWS-1];
@@ -47,7 +47,7 @@ module tb_overflow;
     initial clk = 0;
     always #5 clk = ~clk;
 
-    integer errors, i, j, k;
+    integer errors, i, j, k, c, feed_cycles;
     reg signed [ACCUM_WIDTH-1:0] expected;
 
     initial begin
@@ -64,36 +64,37 @@ module tb_overflow;
 
         // ============================================================
         // Test: Positive overflow saturation
-        // A = [[7, 7], [7, 7]], B = [[7, 7], [7, 7]]
-        // C[0][0] = 7*7 + 7*7 = 98 (fits in 8-bit, max 127)
-        // But try 7*7 + 7*7 + ... won't overflow with K=2
-        //
-        // Use K=2: 7*7 + 7*7 = 98, still fits.
-        // Need bigger values or smaller accum.
-        // With DATA_WIDTH=4, max = 7. ACCUM_WIDTH=8, max = 127.
-        // 7*7 = 49. 49+49 = 98 < 127. Doesn't overflow.
-        //
-        // Instead: use negative values to test negative overflow
-        // A = [[-8, -8], [-8, -8]], B = [[-8, -8], [-8, -8]]
-        // C[0][0] = (-8)*(-8) + (-8)*(-8) = 64 + 64 = 128 > 127 → OVERFLOW
+        // A = [[-8,-8],[-8,-8]], B = [[-8,-8],[-8,-8]]
+        // C[0][0] = (-8)*(-8) + (-8)*(-8) = 64+64 = 128 → saturate to 127
         // ============================================================
         $display("=== Positive overflow (saturation to MAX) ===");
         $display("  DATA_WIDTH=%0d, ACCUM_WIDTH=%0d", DATA_WIDTH, ACCUM_WIDTH);
         $display("  Max accum = %0d", (1 << (ACCUM_WIDTH-1)) - 1);
 
-        // Feed: A[i][k] = -8, B[k][j] = -8 for all i,j,k
-        // C[i][j] = (-8)*(-8) + (-8)*(-8) = 64 + 64 = 128 → saturate to 127
         wait (!busy); @(posedge clk);
 
-        // k=0
-        for (i = 0; i < M_ROWS; i = i + 1) a_data[i] = -8;  // 4'b1000
-        for (j = 0; j < N_COLS; j = j + 1) b_data[j] = -8;
+        // Staggered feed: A[i][k] at cycle c=k+i, B[k][j] at cycle c=k+j
+        feed_cycles = K_DIM;
+        if (M_ROWS > feed_cycles) feed_cycles = M_ROWS;
+        if (N_COLS > feed_cycles) feed_cycles = N_COLS;
+        feed_cycles = feed_cycles + K_DIM - 1;
+
         a_valid = 1; b_valid = 1;
-        @(posedge clk);
-        // k=1
-        for (i = 0; i < M_ROWS; i = i + 1) a_data[i] = -8;
-        for (j = 0; j < N_COLS; j = j + 1) b_data[j] = -8;
-        @(posedge clk);
+        for (c = 0; c < feed_cycles; c = c + 1) begin
+            for (i = 0; i < M_ROWS; i = i + 1) begin
+                if (c >= i && (c - i) < K_DIM)
+                    a_data[i] = -8;
+                else
+                    a_data[i] = 0;
+            end
+            for (j = 0; j < N_COLS; j = j + 1) begin
+                if (c >= j && (c - j) < K_DIM)
+                    b_data[j] = -8;
+                else
+                    b_data[j] = 0;
+            end
+            @(posedge clk);
+        end
         a_valid = 0; b_valid = 0;
         for (i = 0; i < M_ROWS; i = i + 1) a_data[i] = 0;
         for (j = 0; j < N_COLS; j = j + 1) b_data[j] = 0;
@@ -120,46 +121,15 @@ module tb_overflow;
 
         // ============================================================
         // Test: Negative overflow saturation
-        // A = [[7, 7], [7, 7]], B = [[-8, -8], [-8, -8]]
-        // C[0][0] = 7*(-8) + 7*(-8) = -56 + -56 = -112 (fits in 8-bit)
-        // Not enough for K=2. Use mixed signs:
-        // A = [[-8, -8], [-8, -8]], B = [[7, 7], [7, 7]]
-        // C[0][0] = (-8)*7 + (-8)*7 = -56 + -56 = -112 (fits)
-        //
-        // For true negative overflow with K=2, need ACCUM_WIDTH=8:
-        // Use A = [[-8, -8], [-8, -8]], B = [[-8, 7], [7, -8]]
-        // C[0][0] = (-8)*(-8) + (-8)*7 = 64 + (-56) = 8 (no overflow)
-        //
-        // Actually: with 4-bit data and 8-bit accum, K=2:
-        // Max positive: 7*7 + 7*7 = 98 (fits)
-        // Max negative: (-8)*7 + (-8)*7 = -112 (fits)
-        // True overflow needs K > 2 or smaller ACCUM_WIDTH.
-        //
-        // Solution: use ACCUM_WIDTH=4 (max 7, min -8) to guarantee overflow
-        // But we can't change ACCUM_WIDTH at runtime. Instead, test the
-        // negative overflow logic by checking that the saturation value
-        // is correct when overflow DOES occur.
-        //
-        // Alternative: feed 3 rounds of data by modifying K_DIM.
-        // Since we can't, test with the same trick: (-8)*(-8) = 64 (positive).
-        // For negative: (-8)*7 = -56. Two of those = -112. Fits.
-        //
-        // Best approach: verify the saturation MIN value directly.
-        // Feed data that produces a result < -128 (ACCUM_WIDTH=8):
-        // With K=2, need product sum < -128. Max neg product = (-8)*7 = -56.
-        // -56 + -56 = -112 > -128. Can't overflow with K=2 and 4-bit data.
-        //
-        // CONCLUSION: With DATA_WIDTH=4 and K_DIM=2, negative overflow
-        // is impossible (min sum = -112 > -128). This is a limitation of
-        // the test parameters. Skip this test but document the reason.
+        // With DATA_WIDTH=4, K_DIM=2, ACCUM_WIDTH=8:
+        // Min possible sum = (-8)*7 * 2 = -112, which fits in -128..127
+        // Negative overflow impossible with these parameters.
         // ============================================================
         $display("\n=== Negative overflow (saturation to MIN) ===");
         $display("  DATA_WIDTH=%0d, K_DIM=%0d, ACCUM_WIDTH=%0d", DATA_WIDTH, K_DIM, ACCUM_WIDTH);
         $display("  Min possible sum = (-8)*7 * %0d = %0d (fits in %0d-bit min %0d)",
                  K_DIM, (-8)*7*K_DIM, ACCUM_WIDTH, -(1 << (ACCUM_WIDTH-1)));
         $display("  Negative overflow impossible with these parameters — skipping");
-        $display("  To test negative overflow, use K_DIM >= %0d or smaller ACCUM_WIDTH",
-                 ((1 << (ACCUM_WIDTH-1)) / 56) + 1);
 
         // ============================================================
         #100;

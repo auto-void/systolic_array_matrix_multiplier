@@ -68,13 +68,19 @@ module systolic_array #(
     localparam S_DONE   = 2'd3;
 
     reg [1:0]  state, state_next;
-    reg [$clog2(K_DIM+1)-1:0] feed_cnt;
+    reg [$clog2(K_DIM+N_COLS+1)-1:0] feed_cnt;
     reg [$clog2(M_ROWS+N_COLS+K_DIM+2)-1:0] drain_cnt;
 
-    wire feed_done  = (feed_cnt == K_DIM - 1);
-    // After feeding K elements, need M_ROWS-1 + N_COLS-1 + 1 more cycles for
-    // pipeline drain + 1 cycle register delay for result
-    localparam DRAIN_CYCLES = M_ROWS + N_COLS;  // pipeline latency
+    // FEED phase: data is staggered — A[i][k] enters at cycle k+i, B[k][j] at k+j
+    // Last data enters at cycle K_DIM-1 + max(M_ROWS-1, N_COLS-1)
+    // Total FEED cycles = K_DIM + max(M_ROWS, N_COLS) - 1
+    localparam FEED_CYCLES = K_DIM + (M_ROWS > N_COLS ? M_ROWS : N_COLS) - 1;
+    wire feed_done  = (feed_cnt == FEED_CYCLES - 1);
+    // DRAIN: pipeline flush after last data enters. Last PE(i,j) accumulates
+    // at cycle K_DIM-1+max(M-1,N-1)+max(i,j), worst case PE(M-1,N-1) at
+    // cycle K_DIM-1+max(M-1,N-1)+max(M-1,N-1). Plus 1 for result register.
+    // Simplification: DRAIN = max(M_ROWS, N_COLS) cycles.
+    localparam DRAIN_CYCLES = (M_ROWS > N_COLS ? M_ROWS : N_COLS);
     wire drain_done = (drain_cnt == DRAIN_CYCLES - 1);
 
     assign busy   = (state != S_IDLE) && (state != S_DONE);
@@ -133,17 +139,34 @@ module systolic_array #(
     end
 
     // ----------------------------------------------------------------
-    // Boundary input logic
+    // Boundary input logic — Staggered entry for data alignment
     // ----------------------------------------------------------------
-    // A boundary: pe_a_in[i][0] = a_data[i] when feeding, else 0
-    // B boundary: pe_b_in[0][j] = b_data[j] when feeding, else 0
+    // In a systolic array, A flows right (j PEs) and B flows down (i PEs).
+    // To ensure A[i][k] and B[k][j] arrive at PE(i,j) simultaneously:
+    //
+    //   A[i][k] enters PE(i,0) at cycle k+i  (staggered by row)
+    //   B[k][j] enters PE(0,j) at cycle k+j  (staggered by column)
+    //   Both reach PE(i,j) at cycle k+i+j    ✓ aligned!
+    //
+    // At FEED cycle c:
+    //   pe_a_in[i][0] = A[i][c-i] if c >= i and c-i < K_DIM, else 0
+    //   pe_b_in[0][j] = B[c-j][j] if c >= j and c-j < K_DIM, else 0
+    //
+    // Total FEED cycles = K_DIM + max(M_ROWS, N_COLS) - 1
+    // Both boundaries are combinational (no extra registers).
     genvar gi, gj;
     generate
         for (gi = 0; gi < M_ROWS; gi = gi + 1) begin : gen_a_boundary
-            assign pe_a_in[gi][0] = (state == S_FEED) ? a_data[gi] : {DATA_WIDTH{1'b0}};
+            wire a_in_range = (state == S_FEED) &&
+                              (feed_cnt >= gi) &&
+                              (feed_cnt - gi < K_DIM);
+            assign pe_a_in[gi][0] = a_in_range ? a_data[gi] : {DATA_WIDTH{1'b0}};
         end
         for (gj = 0; gj < N_COLS; gj = gj + 1) begin : gen_b_boundary
-            assign pe_b_in[0][gj] = (state == S_FEED) ? b_data[gj] : {DATA_WIDTH{1'b0}};
+            wire b_in_range = (state == S_FEED) &&
+                              (feed_cnt >= gj) &&
+                              (feed_cnt - gj < K_DIM);
+            assign pe_b_in[0][gj] = b_in_range ? b_data[gj] : {DATA_WIDTH{1'b0}};
         end
     endgenerate
 

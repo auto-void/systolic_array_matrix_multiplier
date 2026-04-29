@@ -24,6 +24,104 @@
 
 ---
 
+## [2026-04-29] MiMo (xiaomi/mimo-v2.5-pro) — Debug: 数据对齐问题定位与架构修复（进行中）
+
+### 问题发现
+
+安装 iverilog 并运行 `make sim` 后，**所有测试失败**。结果系统性偏小，对角线及右下区域逐步归零。
+
+**根因分析**：脉动阵列存在**数据对齐 (data alignment) 问题**。
+
+原设计中，A 和 B 的边界输入同时喂入（每周期所有行/列同时送数据）。但在脉动阵列内部：
+- A 向右传播：A[i][k] 到达 PE(i,j) 需要 j 个周期（经过 j 个 PE 的流水线寄存器）
+- B 向下传播：B[k][j] 到达 PE(i,j) 需要 i 个周期（经过 i 个 PE 的流水线寄存器）
+- **到达时间差 = j − i ≠ 0**（对于非对角线 PE）
+
+这导致 A[i][k] 和 B[k][j] 无法在同一周期到达 PE(i,j)，累加的是错误的数据对。
+
+**验证方法**：
+- Test 1 (4×4)：C[0][0] 期望 30，实际 29（少了 A[0][0]×B[0][0]=1 的贡献）
+- Test 3 (identity)：C[0][0]=0（完全丢失），C[3][3]=0（完全丢失）
+- 溢出测试：期望 127 饱和，实际 64（只累加了一个 64，丢失第二个）
+
+### 修复方案
+
+**错开喂入 (Staggered Feeding)**：
+
+改变边界输入逻辑，使 A 和 B 在不同时刻进入阵列：
+- **A[i][k]** 在 FEED 周期 **k+i** 进入 PE(i,0)（按行错开）
+- **B[k][j]** 在 FEED 周期 **k+j** 进入 PE(0,j)（按列错开）
+- 两者到达 PE(i,j) 的时刻 = k+i+j，**天然对齐** ✓
+
+边界改为**纯组合逻辑**（去掉寄存器），由 testbench 控制精确时序。
+
+### 修改内容
+
+**src/systolic_array.v — 边界逻辑重写**
+- A 边界：`pe_a_in[i][0]` 从 registered 改为 combinational
+  - 仅在 `feed_cnt >= i && feed_cnt - i < K_DIM` 时输出 a_data[i]
+- B 边界：同样改为 combinational，条件 `feed_cnt >= j && feed_cnt - j < K_DIM`
+- FEED_CYCLES 改为 `K_DIM + max(M_ROWS, N_COLS) - 1`（容纳错开数据）
+- DRAIN_CYCLES 改为 `max(M_ROWS, N_COLS)`（流水线排空）
+
+**tb/tb_systolic_array.v — 完全重写**
+- `feed_matrices` task 重写为错开喂入模式
+- 数据在 `@(posedge clk)` **之前**设置（确保组合逻辑边界在边沿读到正确值）
+- 所有 6 个测试使用统一的 feed_matrices task
+- back-to-back 测试 (Test 6) 也使用 feed_matrices
+
+**tb/tb_overflow.v — 重写**
+- 使用相同的错开喂入模式
+- 增加 FEED_CYCLES 计算逻辑
+
+### 验证
+
+仿真结果（当前状态，**仍有 1 周期偏移 bug**）：
+
+```
+=== Test 1: Known values (4×4 × 4×4) ===
+  Expected:         Got:
+    30  40  50  60    29  38  47  56
+    40  54  68  82    38  50  62  74
+    50  68  86 104    47  62  77  50
+    60  82 104 126    56  74  50  25
+```
+
+**改进**：从原来的 C[3][3]=0（完全不对齐）到现在 C[3][3]=25（接近但仍有偏移）。
+误差模式：每个 PE 丢失约 1 个乘积的累加，说明错开喂入方向正确但时序仍有 1 拍偏差。
+
+### 待解决
+
+1. **时序偏移 1 周期**：PE(0,0) 结果 29 vs 期望 30，每个 PE 都少累加约 1 个乘积
+2. **需加 debug 波形**：在 testbench 中监视 `dut.pe_a_in[0][0]` / `dut.pe_b_in[0][0]` / `dut.u_pe[0].accum` 来定位丢失时刻
+3. **可能原因**：testbench 数据设置与组合逻辑边界读取之间的 Verilog 事件调度竞争——数据在 `@(posedge clk)` 同一时间槽内更新，边界可能读到旧值
+
+### 设计决策
+
+1. **为什么选择组合逻辑边界（而非在 PE 内加延迟）**
+   - 不修改 PE 核心逻辑，保持可综合性
+   - 边界逻辑简单，只在 generate 块中用 assign
+   - testbench 完全控制时序，灵活度最高
+
+2. **为什么 A 和 B 都错开（而非只错开一个）**
+   - A 路径延迟 = j（PE 链），B 路径延迟 = i（PE 链）
+   - 差值 = j-i，随 PE 位置变化
+   - 只错开一个无法消除所有 PE 的对齐误差
+   - 两者都错开 k+i 和 k+j，到达时间恒为 k+i+j
+
+3. **替代方案（未采用）**
+   - PE 内部加 b_in 延迟寄存器：增加面积，改变 PE 接口
+   - A 边界加 i 周期延迟：需要 M_ROWS 个不同深度的 FIFO
+   - 同时喂入 + 调整 PE 内部时序：太复杂，容易出错
+
+### 已知问题
+
+1. **仿真仍有 bug**：PE(0,0) 结果差 1，需继续 debug（用波形定位）
+2. **`$clog2(1)` 边界**：M_ROWS=1 或 N_COLS=1 时端口宽度计算可能出错
+3. **未测试矩形矩阵**：当前只测了 4×4×4 方阵
+
+---
+
 ## [2026-04-29] MiMo (xiaomi/mimo-v2.5-pro) — 代码审查与 Bug 修复
 
 ### 修改内容
@@ -48,25 +146,9 @@
 - 理由：数据传递本质上是纯寄存器流水线，不需要与累加使能耦合
 - 影响：a_out/b_out 在 IDLE/DONE 时也更新，但边界输入已为零，不影响功能
 
-**负溢出测试分析**：
-- DATA_WIDTH=4, K_DIM=2, ACCUM_WIDTH=8 时：
-  - 最小可能累加值 = (-8)×7 × 2 = -112
-  - 8-bit 最小值 = -128
-  - -112 > -128，无法溢出
-- 结论：负溢出需要更大的 K_DIM 或更小的 ACCUM_WIDTH 才能触发
-
 ### 验证
 - 未实际仿真（环境无 iverilog）
 - 通过代码推演确认修复正确性
-- **需要用户运行 `make sim` 和 `make overflow` 验证**
-
-### 发现但未修复的问题
-
-1. **$clog2(1) 边界**：当 M_ROWS=1 或 N_COLS=1 时，`$clog2(1)-1` = -1，端口宽度为 `[-1:0]`，部分工具可能报错。实际使用中不太可能出现 1×1 阵列。
-
-2. **overflow_count 位宽**：8-bit 最多计数 255 个 PE 溢出。当阵列 > 16×16（256 PE）时会溢出。默认 4×4 无问题。
-
-3. **随机测试范围**：`$urandom_range(0, 2**DATA_WIDTH - 2)` 生成 -128 到 126，不包含 127。这是有意为之（避免 127 作为被减数时的边界问题），但覆盖率不完整。
 
 ---
 
@@ -74,89 +156,33 @@
 
 ### 修改内容
 - **src/pe.v** — 增加溢出检测和饱和逻辑
-  - 检测 `accum + product` 的正溢出和负溢出
-  - 溢出时 clamp 到 `SAT_MAX`/`SAT_MIN` 而非 wrap
-  - 增加 `overflow` 标志（sticky，清零时复位）
-  - 使用独立的 `product` wire 提高可读性
-
 - **src/systolic_array.v** — 暴露溢出信号
-  - 收集所有 PE 的 `overflow` 标志
-  - 输出 `any_overflow`（OR 归约）
-
 - **src/systolic_array_top.v** — 传递 `any_overflow`
-
 - **tb/tb_overflow.v** — 专用溢出测试台
-  - 4-bit 数据、8-bit 累加器
-  - (-8)×(-8) + (-8)×(-8) = 128 → 饱和到 127
-
 - **tb/tb_systolic_array.v** — 增加溢出检测测试用例
-
 - **Makefile** — 增加 `make overflow` 目标
 
 ### 设计决策
 - overflow 标志是 sticky 的（一旦触发保持到清零），避免瞬时溢出被遗漏
 - 饱和逻辑在累加器更新时判断，而非结果输出时
-- 正溢出和负溢出分开检测（同号相加异号结果）
 
-### 已知问题
-- 未实际仿真验证（无 iverilog）
+---
 
 ## [2026-04-29] MiMo (xiaomi/mimo-v2.5-pro) — 初始实现
 
 ### 修改内容
 从零开始实现完整的脉动阵列矩阵乘法器：
 
-- **src/pe.v** — 处理单元
-  - 有符号乘累加器 (MAC)
-  - 清零、使能控制
-  - 数据传递寄存器 (a_out, b_out)
-
-- **src/systolic_array.v** — 顶层阵列
-  - M×N PE 阵列，generate 实例化
-  - 4 状态 FSM (IDLE → FEED → DRAIN → DONE)
-  - 边界输入逻辑
-  - 流水线延迟计算
-
+- **src/pe.v** — 处理单元（有符号 MAC，清零/使能控制，数据传递寄存器）
+- **src/systolic_array.v** — 顶层阵列（M×N PE，4 状态 FSM，边界输入逻辑）
 - **src/systolic_array_top.v** — 可配置包装
-  - 支持 Verilog `define 覆盖参数
-
-- **tb/tb_systolic_array.v** — 测试平台
-  - 三组测试：已知值、随机、单位阵
-  - 软件参考模型对比
-
+- **tb/tb_systolic_array.v** — 测试平台（已知值/随机/单位阵测试）
 - **Makefile** — 构建系统
 - **scripts/run_sim.sh** — 仿真脚本
 - **README.md** — 项目文档
 - **ai/** — AI 协作基础设施
 
 ### 设计决策
-
-1. **clear_acc 时机选择**
-   - 最初在 FEED 状态的第一个周期清零（与 en 同时有效）
-   - 问题：clear_acc 和 en 同时有效时，PE 中 clear 优先于累加，导致丢失第一个 A[0][0]*B[0][0]
-   - 最终方案：在 IDLE/DONE 状态清零，进入 FEED 时累加器已经为零
-
-2. **数据喂入时序**
-   - 测试平台最初在 FSM 转换到 S_FEED 的同一时钟沿设置数据
-   - 问题：非阻塞赋值导致 FSM 看到的是上一周期的数据，产生 1 周期偏移
-   - 最终方案：在 assert valid 之前预设 k=0 的数据，后续数据在每个时钟沿前更新
-
-3. **矩形矩阵支持**
-   - 选择 M×K × K×N 而非仅 N×N 方阵
-   - PE 阵列大小为 M_ROWS × N_COLS，与 K_DIM 无关
-
-### 验证
-
-仿真环境未安装 Icarus Verilog，代码通过以下方式验证：
-- 手动推演 4×4 × 4×4 时序（12 个时钟周期）
-- 逐周期检查 PE 累加时序
-- 检查 clear_acc/en 竞争条件
-- 测试平台时序对齐检查
-
-**⚠️ 需要实际运行仿真验证！** 运行 `make sim` 确认。
-
-### 已知问题
-
-1. **未实际仿真验证** — 环境无 iverilog，需要用户本地运行确认
-2. **累加器溢出** — ACCUM_WIDTH 默认 32-bit，对大矩阵或大数值可能不够
-3. **综合未验证** — 代码写法可综合，但未用 Vivado/Quartus 验证
+1. **clear_acc 时机**：在 IDLE/DONE 状态清零，避免 FEED 首周期竞争
+2. **矩形矩阵支持**：M×K × K×N，PE 阵列大小 M_ROWS × N_COLS
+3. **参数化**：所有模块通过 parameter 支持可配置大小

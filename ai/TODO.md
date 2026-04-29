@@ -6,9 +6,12 @@
 
 ## 🔴 高优先级
 
-### 1. 运行仿真验证
-- [ ] 安装 Icarus Verilog: `sudo apt install iverilog`
-- [ ] 运行 `make sim` 确认三组测试全部通过
+### 1. 仿真验证 — 数据对齐 bug 修复中
+- [x] 安装 Icarus Verilog
+- [x] 运行 `make sim` 发现所有测试失败
+- [x] 定位根因：脉动阵列 A/B 数据到达时间不对齐（差 j-i 个周期）
+- [x] 实施错开喂入 (staggered feeding) 修复方案
+- [ ] 修复残留 1 周期偏移 bug（PE(0,0) 结果差 1）
 - [ ] 运行不同大小: `make sim M=8 K=8 N=8`, `make sim M=3 K=5 N=7`
 - [ ] 测试不同位宽: `make sim W=16`
 
