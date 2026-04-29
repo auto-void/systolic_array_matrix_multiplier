@@ -131,16 +131,18 @@ make wave
 对于 4×4 × 4×4 矩阵乘法（M=4, K=4, N=4）：
 
 ```
-Cycle 0:  清零累加器（IDLE→FEED转换时）
-Cycle 1:  喂入 k=0 数据，PE 开始累加
-Cycle 2:  喂入 k=1 数据
-Cycle 3:  喂入 k=2 数据
-Cycle 4:  喂入 k=3 数据（最后一轮）
-Cycle 5-8: 流水线排空
-Cycle 9:  c_valid 有效，结果就绪
+Cycle 0:  IDLE，累加器清零
+Cycle 1:  FEED 开始，feed_cnt=0，边界输出 A[i][0]/B[0][j]
+Cycle 2:  feed_cnt=1，错开喂入（A[i][1]/B[1][j] + 流水传播）
+Cycle 3:  feed_cnt=2
+  ...
+Cycle 10: feed_cnt=9，最后一次累加（PE(3,3) 收到 A[3][3]×B[3][3]）
+Cycle 11: DRAIN，c_valid 有效，结果就绪
 ```
 
-总延迟 = M + N + K = 4 + 4 + 4 = 12 周期（含清零周期）
+总延迟 = K + M + N - 1 = 4 + 4 + 4 - 1 = 11 周期
+
+FEED_CYCLES = K + M + N - 2 = 10（边界组合逻辑输出延迟 + PE 流水线寄存器需要额外 1 周期累加）
 
 ## License
 
