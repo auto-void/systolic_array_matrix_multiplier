@@ -72,31 +72,41 @@ module systolic_array #(
     input  wire                     clk,
     input  wire                     rst_n,
 
-    // 矩阵 A 输入（每周期每行一个元素）
+    // 矩阵 A 输入
     input  wire signed [DATA_WIDTH-1:0] a_data [0:M_ROWS-1],
     input  wire                     a_valid,
     output wire                     a_ready,
 
-    // 矩阵 B 输入（每周期每列一个元素）
+    // 矩阵 B 输入
     input  wire signed [DATA_WIDTH-1:0] b_data [0:N_COLS-1],
     input  wire                     b_valid,
     output wire                     b_ready,
 
-    // 结果输出
+    // 结果输出（全矩阵直连 PE 累加器）
     output wire signed [ACCUM_WIDTH-1:0] c_data [0:M_ROWS-1][0:N_COLS-1],
     output reg                      c_valid,
-    output wire                     busy
+    output wire                     busy,
+    output wire                     any_overflow,
+
+    // 结果读出（地址选择单元素访问）
+    input  wire [$clog2(M_ROWS)-1:0] row_sel,
+    input  wire [$clog2(N_COLS)-1:0] col_sel,
+    output wire signed [ACCUM_WIDTH-1:0] c_read_data,
+
+    // 状态输出
+    output wire [31:0]              cycle_count,
+    output wire [7:0]               overflow_count
 );
 ```
 
 ### 使用流程
 
 1. **等待空闲**：`busy == 0`
-2. **开始喂数据**：同时拉高 `a_valid` 和 `b_valid`，每周期送入一列 A 和一行 B
-   - `a_data[i]` = `A[i][k]`（第 k 轮，所有行同时送）
-   - `b_data[j]` = `B[k][j]`（第 k 轮，所有列同时送）
-3. **喂完 K 个周期后**：拉低 `a_valid`/`b_valid`
-4. **等待结果**：`c_valid` 拉高时，`c_data` 包含最终结果
+2. **开始喂数据**：同时拉高 `a_valid` 和 `b_valid`，保持整个 FEED_CYCLES 期间为高
+   - 边界组合逻辑根据内部 `feed_cnt` 自动选通正确的 A[i][k]/B[k][j]
+   - 用户只需每周期设置 `a_data[i]` 和 `b_data[j]`（可设置为矩阵任意值，边界逻辑会按错开时序选通）
+3. **等待完成**：`c_valid` 拉高时，`c_data` 包含最终结果
+4. **读出结果**：通过 `row_sel`/`col_sel` 地址选择读出单个元素，或直接使用 `c_data` 全矩阵输出
 
 ## 快速仿真
 

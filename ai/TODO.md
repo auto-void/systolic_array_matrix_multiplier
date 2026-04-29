@@ -8,7 +8,7 @@
 
 ## 🔴 高优先级 — Phase 0: 验证闭环
 
-> 所有后续工作的前提。当前阻塞项：数据对齐 1-cycle offset bug。
+> 所有后续工作的前提。FEED_CYCLES bug 已修复，待 iverilog 仿真确认。
 
 ### 1. 数据对齐 bug 修复
 - [x] 定位根因：A/B 到达时间差 j-i 个周期

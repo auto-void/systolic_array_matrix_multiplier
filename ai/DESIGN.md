@@ -123,8 +123,9 @@ FSM 状态机：
 ```
 输入端：
   - a_valid && b_valid 同时拉高启动计算
-  - 每周期送入 a_data[i] = A[i][k]，b_data[j] = B[k][j]
-  - 送完 K_DIM 个周期后拉低 valid
+  - 整个 FEED_CYCLES（K+M+N-2）期间 valid 保持为高
+  - 边界组合逻辑根据 feed_cnt 自动选择正确的 A[i][k]/B[k][j] 数据
+  - 用户每周期送入 a_data[i] 和 b_data[j]（数据由边界逻辑按错开时序选通）
 
 输出端：
   - c_valid 拉高时，c_data 包含最终结果
