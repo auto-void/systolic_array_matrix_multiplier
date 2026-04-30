@@ -28,6 +28,45 @@
 
 ---
 
+## [2026-05-01] — 全代码审查：发现 Bug 11-21
+
+### 修改内容
+
+**ai/BUGS.md** — 新增 Bug 11-21
+
+RTL 设计隐患：
+- Bug 11：🟡 `clear_acc` 与 `en` 同时有效时的优先级隐患（当前不触发但脆弱）
+- Bug 12：🟡 `en` 信号组合逻辑依赖 FSM 状态 NBA 更新时序（隐式时序依赖）
+
+Testbench 问题：
+- Bug 13：🟡 `feed_matrices` task 额外一拍导致无法测试真正的 DONE→FEED back-to-back
+- Bug 14：🟢 `check_result` 误报 PASSED（全局 errors 累计导致）
+- Bug 15：🟢 `check_result` test_name 截断（Bug 9 关联，已规避）
+- Bug 16：🟢 `tb_bug_verify` 随机范围检查 8-bit 硬编码
+
+RTL 设计隐患：
+- Bug 17：🟡 `overflow_count` 组合逻辑计算过程中毛刺
+- Bug 18：🟢 `cycle_count` back-to-back 场景不重置
+- Bug 19：🟡 `c_data` 二维 unpacked array 端口综合兼容性差
+
+工程问题：
+- Bug 20：🟢 `make wave` 每次都重新编译
+- Bug 21：🟢 `neg_overflow` 测试未纳入 `all` 目标
+
+### 验证结果
+
+- 审查范围：src/pe.v、src/systolic_array.v、src/systolic_array_top.v、src/utils.vh、tb/tb_systolic_array.v、tb/tb_overflow.v、tb/tb_bug_verify.v、tb/tb_bug_hunt.v、Makefile、scripts/*.py
+- RTL 核心逻辑确认正确：错开喂入、PE 累加、FSM 转换、溢出饱和、result_bank 锁存、c_valid 时序
+- 所有已知仿真仍然 PASS（未改 RTL/TB 代码）
+
+### 关键发现
+
+1. **en 信号的隐式正确性**：`en = (state == S_FEED)` 在 IDLE→FEED 转换时读到旧状态（en=0），恰好与边界数据延迟一拍匹配。这是巧合而非设计，未来修改 FSM 时极易破坏。
+2. **back-to-back 测试覆盖盲区**：tb_systolic_array 的 Test 6 因 feed_matrices 额外一拍，实际测试的是 IDLE→FEED，不是 DONE→FEED。只有 tb_bug_verify 的 BUG TEST 1 覆盖了真正的 back-to-back。
+3. **c_valid 采样时序正确**：TB 在 `wait(c_valid); @(posedge clk)` 时，c_data 在 @(posedge clk) 的 NBA 更新前仍保持有效值（accum 尚未被 clear_acc 清零），golden_C 正确捕获结果。
+
+---
+
 ## [2026-05-01] — 修复 TB 时序竞态 + Bug 6 DONE→FEED clear_acc，全测试通过
 
 ### 修改内容

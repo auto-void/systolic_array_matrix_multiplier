@@ -188,9 +188,190 @@ tb_bug_verify Bug 1      → ✓ Back-to-back results are clean
 
 ---
 
+## 🟡 Bug 11：`clear_acc` 与 `en` 同时有效时的优先级隐患
+
+**文件**：`src/pe.v` + `src/systolic_array.v`
+
+**现象**：PE 中 `clear_acc` 优先级高于 `en`（`if (clear_acc) ... else if (en) ...`）。当前 `clear = (state==S_IDLE)||(state==S_DONE)`，FEED 状态下 clear_acc=0，所以不会触发。但这个安全性依赖于 FSM 的隐式语义——如果未来修改 FSM 去掉 DONE 状态的 clear，首拍数据就会被丢弃。
+
+**根因**：`en = (state == S_FEED)` 是组合逻辑，在同一 posedge 与 state 的 NBA 更新同时生效。IDLE→FEED 转换时 en 在第一个 FEED posedge 读到旧状态（IDLE），所以 en=0 不累加——这恰好是正确行为（边界数据需要一拍延迟）。但这个"正确"是巧合，不是显式设计。
+
+**状态**：⬜ 未修复（设计隐患，当前不触发）
+
+**建议**：将 `en` 改为寄存器输出（`en_d1 = (state_next == S_FEED)`），显式声明时序意图，消除隐式依赖。
+
+---
+
+## 🟡 Bug 12：`en` 信号组合逻辑依赖 FSM 状态 NBA 更新时序
+
+**文件**：`src/systolic_array.v`
+
+```verilog
+.en(state == S_FEED),  // 组合逻辑比较
+```
+
+**现象**：`state` 通过 NBA 更新，`en` 在同一 posedge 的组合求值阶段读到的是旧 state。IDLE→FEED 转换的 posedge：en 读到 IDLE → en=0；下一个 posedge：en 读到 FEED → en=1。
+
+这是正确行为（与边界数据延迟一拍匹配），但依赖 Verilog 事件调度的隐式语义，而非显式寄存器延迟。如果有人改了边界逻辑的时序（比如去掉组合逻辑改为寄存器），整个数据对齐就会出错。
+
+**状态**：⬜ 未修复（与 Bug 11 同源，建议一并修复）
+
+**建议**：同 Bug 11——改用寄存器版 `en`。
+
+---
+
+## 🟡 Bug 13：`feed_matrices` task 额外一拍导致无法测试真正的 DONE→FEED back-to-back
+
+**文件**：`tb/tb_systolic_array.v`、`tb/tb_overflow.v` — `feed_matrices` task
+
+**现象**：task 末尾在 deassert valid 之前多了一拍 `@(posedge clk)`：
+
+```verilog
+for (ii...) a_data[ii] = 0;
+for (jj...) b_data[jj] = 0;
+@(posedge clk);    // ← 这一拍让 FSM 从 DRAIN 进 DONE 再回 IDLE
+a_valid = 0;
+b_valid = 0;
+```
+
+这导致 `wait(!busy)` 时 FSM 已在 IDLE，Test 6 (back-to-back) 测试的是 IDLE→FEED，不是 DONE→FEED。真正的 back-to-back 场景（DONE 直接到 FEED，无 IDLE 间隙）从未被 tb_systolic_array 验证。
+
+**验证**：`tb_bug_verify` 的 BUG TEST 1 单独实现了 DONE→FEED 测试，但 `tb_systolic_array` 的 Test 6 没有。
+
+**状态**：⬜ 未修复
+
+**建议**：在 `feed_matrices` 末尾去掉 `a_valid=0; b_valid=0`，让调用者控制何时 deassert valid。或新增一个 `feed_matrices_backto_back` task 不加额外那拍。
+
+---
+
+## 🟢 Bug 14：`check_result` 误报 PASSED
+
+**文件**：`tb/tb_systolic_array.v` — `check_result` task
+
+**现象**：`errors` 是全局累计变量。如果 Test 1 失败（errors=1），Test 2 的 `check_result` 会打印 `→ FAILED`——但这不是因为 Test 2 自己失败，而是读到了 Test 1 留下的 error count。反之，如果 Test 1 PASS 但 Test 2 FAIL，Test 1 打印 `→ PASSED` 是对的，但 Test 2 打印 `→ FAILED` 时无法区分是自己失败还是之前的。
+
+```verilog
+if (errors == 0) $display("  → PASSED");  // ← 检查全局 errors，不是本次
+else             $display("  → FAILED");
+```
+
+**状态**：⬜ 未修复
+
+**建议**：在 task 开头记录 `errors_before = errors`，结尾检查 `errors == errors_before`。
+
+---
+
+## 🟢 Bug 15：`check_result` 的 test_name 截断（Bug 9 关联）
+
+**文件**：`tb/tb_systolic_array.v`
+
+**现象**：`input [255:0] test_name` 只有 32 字节，超过 32 字符的名字会被截断。Test 8 绕过 `check_result` 直接用 `$display` 就是这个原因。
+
+**状态**：✅ 已规避（2026-05-01，Test 8 改用直接打印），根本原因未修复。
+
+---
+
+## 🟢 Bug 16：`tb_bug_verify` 随机范围检查用 8-bit 硬编码
+
+**文件**：`tb/tb_bug_verify.v` — BUG TEST 2
+
+**现象**：
+
+```verilog
+if (val == 127) saw_max = 1;  // ← 硬编码 127
+```
+
+DATA_WIDTH=8 时正确，但参数化后检查失效。
+
+**状态**：⬜ 未修复
+
+**建议**：改为 `if (val == (1 << (DATA_WIDTH-1)) - 1) saw_max = 1;`
+
+---
+
+## 🟡 Bug 17：`overflow_count` 组合逻辑在计算过程中可能毛刺
+
+**文件**：`src/systolic_array.v`
+
+**现象**：`overflow_count` 是组合逻辑（`always @(*)` 求和所有 PE 的 overflow flag）。在 FEED 阶段，PE 逐周期累加，某些 PE 可能在中间周期溢出，overflow_count 在每个周期都会变化。最终值只在计算结束后稳定，但中间值不可靠。
+
+```verilog
+always @(*) begin
+    ovf_cnt = 0;
+    for (oi...) for (oj...)
+        ovf_cnt = ovf_cnt + 8'(pe_overflow[oi][oj]);
+end
+```
+
+**状态**：⬜ 未修复
+
+**建议**：改为寄存器输出，在 c_valid 时锁存最终值。或增加 `overflow_count_valid` 信号指示何时可读。
+
+---
+
+## 🟢 Bug 18：`cycle_count` 在 back-to-back 场景不重置
+
+**文件**：`src/systolic_array.v`
+
+**现象**：cycle_count 只在 IDLE→FEED 时清零。DONE→FEED（back-to-back）不清零，cycle_count 会累计两轮计算的总周期。
+
+```verilog
+else if (state == S_IDLE && state_next == S_FEED)
+    cyc_cnt <= 0;
+```
+
+**状态**：⬜ 未修复（行为可接受，但语义不明确）
+
+**建议**：DONE→FEED 时也清零，或增加 `cycle_count_valid` 信号在 c_valid 时锁存。
+
+---
+
+## 🟡 Bug 19：`c_data` 二维 unpacked array 端口综合兼容性差
+
+**文件**：`src/systolic_array.v`、`src/systolic_array_top.v`
+
+**现象**：
+
+```verilog
+output wire signed [ACCUM_WIDTH-1:0] c_data [0:M_ROWS-1][0:N_COLS-1],
+```
+
+Vivado 对 unpacked array 端口支持差，综合时可能报错或生成不可预期的网表。
+
+**状态**：⬜ 未修复（TODO #13 已标记）
+
+**建议**：去掉 c_data 端口，只保留 result_bank + row_sel/col_sel 地址读出。或改为一维 flatten 输出。
+
+---
+
+## 🟢 Bug 20：`make wave` 每次都重新编译
+
+**文件**：`Makefile`
+
+**现象**：`wave` 目标直接编译到 `$(SIM_DIR)`，与 `sim` 共享 build dir。每次切换 `--trace` 开关都要重新编译。
+
+**状态**：⬜ 未修复
+
+**建议**：`wave` 目标单独用 `$(BUILD)/wave` 目录。
+
+---
+
+## 🟢 Bug 21：`neg_overflow` 测试未纳入 `all` 目标
+
+**文件**：`Makefile`
+
+**现象**：`make all: sim` 只跑主仿真，不跑 `overflow` / `neg_overflow`。
+
+**状态**：⬜ 未修复
+
+**建议**：`all: sim overflow neg_overflow` 或新增 `make test` 跑全部。
+
+---
+
 ## 备注
 
 - **Bug 1+2 叠加**是当前所有仿真失败的根因（已修复）
-- **Bug 6** 是新发现的 RTL 设计缺陷，影响真正的 back-to-back 场景
-- Bug 7/8 是测试覆盖不足，不影响 RTL 正确性
-- Bug 9/10 是 cosmetic 问题
+- **Bug 6** 是新发现的 RTL 设计缺陷，影响真正的 back-to-back 场景（已修复）
+- **Bug 11/12** 是 en 信号设计隐患，当前不触发但脆弱
+- **Bug 13** 是测试覆盖盲区，真正的 DONE→FEED back-to-back 未被 tb_systolic_array 验证
+- Bug 7-10 已修复，Bug 14-21 为新发现
