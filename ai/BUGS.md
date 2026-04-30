@@ -12,45 +12,15 @@
 
 **现象**：PE(0,0) 期望 30 得 29，所有 PE 都少累加约 1 个乘积。
 
-**根因**：Testbench 在 `@(posedge clk)` **之后**才设置下一个周期的数据，但组合逻辑边界在同一 posedge 就读取了旧数据。数据永远比边界期望的晚 1 周期。
+**根因**：Testbench 在拉高 valid 之后等 posedge（FSM 进 FEED），此时 state=IDLE，边界输出 0；data 在 posedge 之后才设置，但那时候 TB 已经进入下一个循环步骤，导致每拍数据都错位 1 周期。
 
-```verilog
-// 当前代码：先等 posedge，再设数据 → 边界读到的是上一拍的旧值
-for (c = 0; c < fc; c = c + 1) begin
-    @(posedge clk);                          // ← 边界在这里读数据
-    // Set data for cycle c+1               // ← 但数据在这里才更新！
-    for (ii = 0; ii < M_ROWS; ii = ii + 1)
-        if ((c+1) >= ii && ((c+1) - ii) < K_DIM)
-            a_data[ii] = A[ii][(c+1) - ii];  // 太晚了
-```
+**修复**（2026-04-30）：
+- `wait(!busy)` 后加一个 `@(posedge clk)` 确保 FSM 在 IDLE
+- 然后拉高 valid，`@(posedge clk)`（FSM 进 FEED，feed_cnt=0）
+- posedge 之后立刻设 cycle-0 数据（Verilator 在同一时间步内 initial block 先于 always 完成，组合逻辑立刻更新）
+- 循环体：设 cycle-c 数据 → `@(posedge clk)`，共 fc 次
 
-**修复**：在 `@(posedge clk)` **之前**设置当前周期的数据：
-
-```verilog
-// 先设数据，再等 posedge → 边界在 posedge 读到正确值
-for (c = 0; c < fc; c = c + 1) begin
-    // Set data for cycle c (before the edge!)
-    for (ii = 0; ii < M_ROWS; ii = ii + 1)
-        if (c >= ii && (c - ii) < K_DIM)
-            a_data[ii] = A[ii][c - ii];
-        else
-            a_data[ii] = 0;
-    for (jj = 0; jj < N_COLS; jj = jj + 1)
-        if (c >= jj && (c - jj) < K_DIM)
-            b_data[jj] = B[c - jj][jj];
-        else
-            b_data[jj] = 0;
-    @(posedge clk);  // 边界在此读到刚设好的数据
-end
-```
-
-**状态**：⬜ 待修复
-
-**复现**：
-```bash
-make sim
-# 观察输出：PE(0,0) = 29（期望 30），所有 PE 系统性偏小
-```
+**状态**：✅ 已修复（2026-04-30）
 
 ---
 
@@ -67,11 +37,9 @@ posedge 4: state→S_FEED(NBA), en=0, 边界读到 cycle 0 数据 → PE 不累�
 posedge 5: state=S_FEED, en=1, 边界读到 cycle 1 数据 → PE 累积 4
 ```
 
-**修复方案**（二选一）：
-- **方案 A**（改 RTL）：`assign en = (state_next == S_FEED);` — 在状态转移的同一周期就使能
-- **方案 B**（改 TB）：在进入 feed 循环前提前 1 周期设置 cycle 0 数据
-
-**状态**：⬜ 待修复
+**状态**：✅ 已通过 TB 修复间接解决（2026-04-30）
+- Bug 1 的修复方案（valid 拉高后多等一拍再进 FEED 循环）同时规避了此问题
+- en 信号本身保持 `state == S_FEED`（RTL 未改动）
 
 **复现**：同 Bug 1（两者叠加），`make sim` 即可观察到。
 
@@ -85,50 +53,46 @@ posedge 5: state=S_FEED, en=1, 边界读到 cycle 1 数据 → PE 累积 4
 
 **根因**：与 Bug 1 相同——数据在 `@(posedge clk)` 之后才设置，边界读到上一拍的旧值。
 
-```verilog
-// 当前代码：先 @(posedge clk) 再设数据
-for (c = 0; c < feed_cycles; c = c + 1) begin
-    // 设数据...
-    @(posedge clk);  // 边界在这里读到的是上一轮的旧数据
-end
-```
+**修复**（2026-04-30）：采用与 Bug 1 相同的协议——拉高 valid，@posedge（FSM 进 FEED），之后在循环里设 cycle-c 数据 → @posedge。
 
-**修复**：同 Bug 1，改为先设数据再 `@(posedge clk)`。
+**状态**：✅ 已修复（2026-04-30）
 
-**状态**：⬜ 待修复
-
-**复现**：
-```bash
-make overflow
-# 观察输出：C[i][j] = 64（期望 127 饱和），只累加了 1 个乘积
-```
+**验证**：`make overflow` 输出 `*** ALL OVERFLOW TESTS PASSED ***`
 
 ---
 
 ## 🟡 Bug 4：`$clog2(1)` = 0 导致零宽度端口
 
-**文件**：`src/systolic_array.v`、`src/systolic_array_top.v`
+**文件**：`src/systolic_array.v`、`src/systolic_array_top.v`、`tb/tb_systolic_array.v`、`tb/tb_overflow.v`
 
-**现象**：当 `M_ROWS=1` 或 `N_COLS=1` 时，`$clog2(1) = 0`，导致 `row_sel` 或 `col_sel` 端口位宽为 0。
+**现象**：当 `M_ROWS=1` 或 `N_COLS=1` 时，`$clog2(1) = 0`，导致 `row_sel` 或 `col_sel` 端口位宽为 0，编译报错。
 
 ```verilog
 input  wire [$clog2(M_ROWS)-1:0] row_sel,   // $clog2(1)-1 = -1 → 位宽 0！
 input  wire [$clog2(N_COLS)-1:0] col_sel,
 ```
 
-**修复**：
+**修复**（2026-04-30）：创建 `src/utils.vh` 工具头文件，统一使用 `ADDR_WIDTH` 宏：
+
 ```verilog
-input  wire [($clog2(M_ROWS) > 0 ? $clog2(M_ROWS) : 1) - 1:0] row_sel,
-input  wire [($clog2(N_COLS) > 0 ? $clog2(N_COLS) : 1) - 1:0] col_sel,
+// src/utils.vh
+`define ADDR_WIDTH(N) ($clog2(N) > 0 ? $clog2(N) : 1)
 ```
 
-**状态**：⬜ 待修复
+```verilog
+// systolic_array.v / systolic_array_top.v / TB
+input  wire [`ADDR_WIDTH(M_ROWS)-1:0] row_sel,
+input  wire [`ADDR_WIDTH(N_COLS)-1:0] col_sel,
+```
 
-**复现**：
+**状态**：✅ 已修复（2026-04-30）
+
+**验证**：`make sim M=1 K=4 N=1` → `*** ALL TESTS PASSED ***`
+
+**复现**（修复前）：
 ```bash
-# 修改 tb_systolic_array.v 参数为 M_ROWS=1, N_COLS=1，然后：
-make sim
-# iverilog 报错：port size mismatch 或零宽度端口
+make sim M=1 K=4 N=1
+# 报错：零宽度端口或位宽不匹配
 ```
 
 ---

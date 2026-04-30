@@ -1,5 +1,6 @@
 # ============================================================================
 # Makefile for Systolic Array Matrix Multiplier
+# Simulator: Verilator (--binary mode, generates native executable)
 # ============================================================================
 
 # Configurable parameters (override via: make sim M=8 K=8 N=8 W=16)
@@ -15,47 +16,68 @@ TB_DIR   := tb
 BUILD    := build
 
 # Tools
-IVERILOG := iverilog
-VVP      := vvp
-GTKWAVE  := gtkwave
+VERILATOR := verilator
+GTKWAVE   := gtkwave
 
-# Files
+# Source files
 SRCS     := $(SRC_DIR)/pe.v $(SRC_DIR)/systolic_array.v
 TB       := $(TB_DIR)/tb_systolic_array.v
-VVP_OUT  := $(BUILD)/systolic_array.vvp
-VCD_OUT  := $(BUILD)/systolic_array.vcd
 OVF_TB   := $(TB_DIR)/tb_overflow.v
-OVF_VVP  := $(BUILD)/overflow.vvp
 
-# Parameter flags for iverilog
+# Verilator output dirs and executables
+SIM_DIR  := $(BUILD)/sim_main
+SIM_BIN  := $(SIM_DIR)/Vtb_systolic_array
+OVF_DIR  := $(BUILD)/overflow
+OVF_BIN  := $(OVF_DIR)/Vtb_overflow
+
+# Verilator common flags
+VFLAGS   := --binary -j 0 --timing -Wno-fatal
+
+# Parameter defines passed to Verilator
 DEFINES  := -DM_ROWS=$(M) -DK_DIM=$(K) -DN_COLS=$(N) -DDATA_WIDTH=$(W) -DACCUM_WIDTH=$(AW)
 
 .PHONY: all sim overflow wave clean help
 
 all: sim
 
-# Compile
-$(VVP_OUT): $(SRCS) $(TB) | $(BUILD)
+# ----------------------------------------------------------------
+# Main simulation
+# ----------------------------------------------------------------
+$(SIM_BIN): $(SRCS) $(TB) | $(BUILD)
 	@echo "========================================="
 	@echo " M=$(M) K=$(K) N=$(N) W=$(W) AW=$(AW)"
 	@echo "========================================="
-	$(IVERILOG) -g2012 $(DEFINES) -o $@ $^
+	$(VERILATOR) $(VFLAGS) $(DEFINES) -Mdir $(SIM_DIR) \
+		--top-module tb_systolic_array $(SRCS) $(TB)
 
-# Simulate
-sim: $(VVP_OUT)
-	$(VVP) $<
+sim: $(SIM_BIN)
+	$(SIM_BIN)
 
+# Force rebuild when parameters change
+.PHONY: $(SIM_BIN)
+
+# ----------------------------------------------------------------
 # Overflow test
-$(OVF_VVP): $(SRCS) $(OVF_TB) | $(BUILD)
-	$(IVERILOG) -g2012 -o $@ $^
+# ----------------------------------------------------------------
+$(OVF_BIN): $(SRCS) $(OVF_TB) | $(BUILD)
+	$(VERILATOR) $(VFLAGS) -Mdir $(OVF_DIR) \
+		--top-module tb_overflow $(SRCS) $(OVF_TB)
 
-overflow: $(OVF_VVP)
-	$(VVP) $<
+overflow: $(OVF_BIN)
+	$(OVF_BIN)
 
-# Open waveform
-wave: sim
-	$(GTKWAVE) $(VCD_OUT) &
+.PHONY: $(OVF_BIN)
 
+# ----------------------------------------------------------------
+# Waveform (requires --trace flag — rebuild with trace enabled)
+# ----------------------------------------------------------------
+wave:
+	$(VERILATOR) $(VFLAGS) --trace $(DEFINES) -Mdir $(SIM_DIR) \
+		--top-module tb_systolic_array $(SRCS) $(TB)
+	$(SIM_BIN) +verilator+traceoff  # generates systolic_array.vcd
+	$(GTKWAVE) systolic_array.vcd &
+
+# ----------------------------------------------------------------
 $(BUILD):
 	mkdir -p $(BUILD)
 
@@ -64,9 +86,9 @@ clean:
 
 help:
 	@echo "Usage:"
-	@echo "  make sim              - Compile and run simulation (default 4×4×4)"
-	@echo "  make sim M=8 K=8 N=8  - 8×8 × 8×8 matrix multiply"
-	@echo "  make sim M=3 K=5 N=7  - 3×5 × 5×7 matrix multiply"
+	@echo "  make sim              - Compile and run simulation (default 4x4x4)"
+	@echo "  make sim M=8 K=8 N=8  - 8x8 x 8x8 matrix multiply"
+	@echo "  make sim M=3 K=5 N=7  - 3x5 x 5x7 matrix multiply"
 	@echo "  make sim W=16         - 16-bit data width"
 	@echo "  make overflow         - Overflow/saturation test (4-bit data, 8-bit accum)"
 	@echo "  make wave             - Run simulation and open GTKWave"

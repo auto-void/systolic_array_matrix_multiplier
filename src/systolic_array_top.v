@@ -1,3 +1,4 @@
+`include "src/utils.vh"
 `timescale 1ns / 1ps
 // ============================================================================
 // Configurable Wrapper for Systolic Array Matrix Multiplier
@@ -27,8 +28,8 @@ module systolic_array_top #(
     output wire                     c_valid,
     output wire                     busy,
     output wire                     any_overflow,
-    input  wire [$clog2(M_ROWS)-1:0] row_sel,
-    input  wire [$clog2(N_COLS)-1:0] col_sel,
+    input  wire [`ADDR_WIDTH(M_ROWS)-1:0] row_sel,
+    input  wire [`ADDR_WIDTH(N_COLS)-1:0] col_sel,
     output wire signed [ACCUM_WIDTH-1:0] c_read_data,
     output wire [31:0]              cycle_count,
     output wire [7:0]               overflow_count

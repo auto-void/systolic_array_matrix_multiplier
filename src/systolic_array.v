@@ -1,3 +1,4 @@
+`include "src/utils.vh"
 `timescale 1ns / 1ps
 // ============================================================================
 // Systolic Array Matrix Multiplier — Top Module
@@ -43,8 +44,8 @@ module systolic_array #(
     output wire                     any_overflow,  // OR of all PE overflow flags
 
     // Result readout — address-based single-element access
-    input  wire [$clog2(M_ROWS)-1:0] row_sel,      // row address
-    input  wire [$clog2(N_COLS)-1:0] col_sel,      // column address
+    input  wire [`ADDR_WIDTH(M_ROWS)-1:0] row_sel,      // row address
+    input  wire [`ADDR_WIDTH(N_COLS)-1:0] col_sel,      // column address
     output wire signed [ACCUM_WIDTH-1:0] c_read_data, // selected element
 
     // Status outputs
@@ -157,15 +158,19 @@ module systolic_array #(
     genvar gi, gj;
     generate
         for (gi = 0; gi < M_ROWS; gi = gi + 1) begin : gen_a_boundary
+            /* verilator lint_off UNSIGNED */
             wire a_in_range = (state == S_FEED) &&
                               (feed_cnt >= gi) &&
                               (feed_cnt - gi < K_DIM);
+            /* verilator lint_on UNSIGNED */
             assign pe_a_in[gi][0] = a_in_range ? a_data[gi] : {DATA_WIDTH{1'b0}};
         end
         for (gj = 0; gj < N_COLS; gj = gj + 1) begin : gen_b_boundary
+            /* verilator lint_off UNSIGNED */
             wire b_in_range = (state == S_FEED) &&
                               (feed_cnt >= gj) &&
                               (feed_cnt - gj < K_DIM);
+            /* verilator lint_on UNSIGNED */
             assign pe_b_in[0][gj] = b_in_range ? b_data[gj] : {DATA_WIDTH{1'b0}};
         end
     endgenerate
@@ -247,7 +252,7 @@ module systolic_array #(
         ovf_cnt = 0;
         for (oi = 0; oi < M_ROWS; oi = oi + 1)
             for (oj = 0; oj < N_COLS; oj = oj + 1)
-                ovf_cnt = ovf_cnt + pe_overflow[oi][oj];
+                ovf_cnt = ovf_cnt + 8'(pe_overflow[oi][oj]);
     end
     assign overflow_count = ovf_cnt;
 

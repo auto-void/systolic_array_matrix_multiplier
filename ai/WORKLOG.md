@@ -28,6 +28,59 @@
 
 ---
 
+## [2026-04-30] — 修复 Bug 1/2/3，仿真全部 PASS，切换至 Verilator
+
+### 修改内容
+
+**tb/tb_systolic_array.v — `feed_matrices` task 时序修复（Bug 1）**
+- 根因：TB 在 posedge 之后设数据，但 posedge 时 FSM 还在 IDLE，边界 guard 条件 `state==S_FEED` 为 false，pe_a_in=0
+- 新协议：`wait(!busy)` → `@(posedge clk)`（确保在 IDLE）→ 拉高 valid → `@(posedge clk)`（FSM 进 FEED，initial block 在同时间步设 cycle-0 数据，组合逻辑立刻更新）→ 循环 c=0..fc-1：设 cycle-c 数据 → `@(posedge clk)`
+- 同时修复 back-to-back bug：`wait(!busy)` 后加 `@(posedge clk)` 确保 FSM 从 DONE 退到 IDLE，避免 clear_acc 竞态
+
+**tb/tb_overflow.v — 同样的协议修复（Bug 3）**
+- 采用与 tb_systolic_array.v 相同的 valid/feed 时序
+
+**Makefile — 从 iverilog 迁移到 Verilator**
+- 使用 `verilator --binary -j 0 --timing -Wno-fatal` 模式
+- `make sim`、`make overflow` 命令保持兼容
+
+**src/utils.vh — 新建工具头文件（Bug 4）**
+- 定义 `ADDR_WIDTH(N) = ($clog2(N) > 0 ? $clog2(N) : 1)` 宏，替换所有 `$clog2(M_ROWS/N_COLS)-1:0` 声明
+
+**src/systolic_array.v — 警告消除**
+- `ovf_cnt = ovf_cnt + 8'(pe_overflow[oi][oj])` 消除 WIDTHEXPAND 警告
+- genvar 比较处添加 `/* verilator lint_off UNSIGNED */`
+
+**tb/tb_systolic_array.v — 警告消除 + 新增边界测试**
+- 数据赋值全部加 `DATA_WIDTH'(...)` 显式转换，消除 WIDTHTRUNC 警告
+- 新增 Test 7（全零矩阵）、Test 8（1×1×1 最小尺寸）
+
+**ai/BUGS.md** — Bug 4 状态更新为 ✅ 已修复
+**ai/TODO.md** — W=16 测试、边界值测试、Bug 4 全部标记 ✅
+
+### 验证结果
+
+```
+make sim                  → *** ALL TESTS PASSED *** (8 tests: 1-8)
+make sim M=8 K=8 N=8    → *** ALL TESTS PASSED ***
+make sim M=3 K=5 N=7    → *** ALL TESTS PASSED ***
+make sim M=1 K=4 N=1    → *** ALL TESTS PASSED *** (M=1 边界，Bug 4 修复验证)
+make sim W=16            → *** ALL TESTS PASSED *** (16-bit, zero warnings)
+make sim M=1 K=1 N=1    → *** ALL TESTS PASSED *** (1×1×1 最小尺寸)
+make overflow            → *** ALL OVERFLOW TESTS PASSED ***
+```
+
+8 个测试全部通过，Verilator 零警告。
+
+### 关键发现（Verilator 调度语义）
+
+Verilator `initial` block 在 `@(posedge clk)` 之后恢复执行时，与 `always @(posedge clk)` 的 NBA 更新处于同一时间步：
+- `always @(posedge clk)` 先更新 state（NBA）
+- `initial` block 恢复，设置 a_data，组合逻辑立刻重算 pe_a_in
+- 这意味着"valid 拉高 → posedge → 设数据"的协议可以工作，因为数据在同一时间步的组合再求值中生效
+
+---
+
 ## [2026-04-29] MiMo — 全面代码审查：发现 5 个 bug
 
 ### 修改内容

@@ -1,8 +1,12 @@
+`include "src/utils.vh"
 `timescale 1ns / 1ps
 // ============================================================================
 // Overflow & Saturation Testbench
 // Uses small ACCUM_WIDTH (8-bit) to guarantee overflow with 4-bit data.
 // Verifies that PE saturates to MAX/MIN instead of wrapping.
+//
+// RTL timing: assert valid, @posedge (FSM enters FEED), then for each
+// feed cycle c: set data, @posedge. Same protocol as tb_systolic_array.
 // ============================================================================
 
 module tb_overflow;
@@ -23,8 +27,8 @@ module tb_overflow;
     wire signed [ACCUM_WIDTH-1:0]    c_data [0:M_ROWS-1][0:N_COLS-1];
     wire                              c_valid, busy, any_overflow;
 
-    reg  [$clog2(M_ROWS)-1:0]        row_sel;
-    reg  [$clog2(N_COLS)-1:0]        col_sel;
+    reg  [`ADDR_WIDTH(M_ROWS)-1:0]        row_sel;
+    reg  [`ADDR_WIDTH(N_COLS)-1:0]        col_sel;
     wire signed [ACCUM_WIDTH-1:0]    c_read_data;
     wire [31:0]                       cycle_count;
     wire [7:0]                        overflow_count;
@@ -47,7 +51,7 @@ module tb_overflow;
     initial clk = 0;
     always #5 clk = ~clk;
 
-    integer errors, i, j, k, c, feed_cycles;
+    integer errors, i, j, c, feed_cycles;
     reg signed [ACCUM_WIDTH-1:0] expected;
 
     initial begin
@@ -65,18 +69,22 @@ module tb_overflow;
         // ============================================================
         // Test: Positive overflow saturation
         // A = [[-8,-8],[-8,-8]], B = [[-8,-8],[-8,-8]]
-        // C[0][0] = (-8)*(-8) + (-8)*(-8) = 64+64 = 128 → saturate to 127
+        // C[0][0] = (-8)*(-8) + (-8)*(-8) = 64+64 = 128 -> saturate to 127
         // ============================================================
         $display("=== Positive overflow (saturation to MAX) ===");
         $display("  DATA_WIDTH=%0d, ACCUM_WIDTH=%0d", DATA_WIDTH, ACCUM_WIDTH);
         $display("  Max accum = %0d", (1 << (ACCUM_WIDTH-1)) - 1);
 
-        wait (!busy); @(posedge clk);
+        feed_cycles = K_DIM + M_ROWS + N_COLS - 2;  // 4
 
-        // Staggered feed: A[i][k] at cycle c=k+i, B[k][j] at cycle c=k+j
-        feed_cycles = K_DIM + M_ROWS + N_COLS - 2;
+        // Protocol: assert valid, @posedge (FSM enters FEED, feed_cnt=0)
+        // then for each cycle c=0..feed_cycles-1: set data, @posedge
+        wait (!busy);
+        @(posedge clk);  // ensure we are in IDLE (not DONE)
 
         a_valid = 1; b_valid = 1;
+        @(posedge clk);  // FSM: IDLE->FEED, feed_cnt=0
+
         for (c = 0; c < feed_cycles; c = c + 1) begin
             for (i = 0; i < M_ROWS; i = i + 1) begin
                 if (c >= i && (c - i) < K_DIM)
@@ -92,6 +100,7 @@ module tb_overflow;
             end
             @(posedge clk);
         end
+
         a_valid = 0; b_valid = 0;
         for (i = 0; i < M_ROWS; i = i + 1) a_data[i] = 0;
         for (j = 0; j < N_COLS; j = j + 1) b_data[j] = 0;
@@ -126,7 +135,7 @@ module tb_overflow;
         $display("  DATA_WIDTH=%0d, K_DIM=%0d, ACCUM_WIDTH=%0d", DATA_WIDTH, K_DIM, ACCUM_WIDTH);
         $display("  Min possible sum = (-8)*7 * %0d = %0d (fits in %0d-bit min %0d)",
                  K_DIM, (-8)*7*K_DIM, ACCUM_WIDTH, -(1 << (ACCUM_WIDTH-1)));
-        $display("  Negative overflow impossible with these parameters — skipping");
+        $display("  Negative overflow impossible with these parameters -- skipping");
 
         // ============================================================
         #100;
