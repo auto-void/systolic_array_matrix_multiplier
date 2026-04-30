@@ -121,10 +121,10 @@ module tb_systolic_array;
         $display("\n=== Test 2: Random values ===");
         for (i = 0; i < M_ROWS; i = i + 1)
             for (k = 0; k < K_DIM; k = k + 1)
-                A[i][k] = DATA_WIDTH'($urandom_range(0, 2**DATA_WIDTH - 2) - (2**(DATA_WIDTH-1)));
+                A[i][k] = DATA_WIDTH'($urandom_range(0, (2**DATA_WIDTH) - 1) - (2**(DATA_WIDTH-1)));
         for (k = 0; k < K_DIM; k = k + 1)
             for (j = 0; j < N_COLS; j = j + 1)
-                B[k][j] = DATA_WIDTH'($urandom_range(0, 2**DATA_WIDTH - 2) - (2**(DATA_WIDTH-1)));
+                B[k][j] = DATA_WIDTH'($urandom_range(0, (2**DATA_WIDTH) - 1) - (2**(DATA_WIDTH-1)));
         compute_expected;
         feed_matrices;
         wait_for_result;

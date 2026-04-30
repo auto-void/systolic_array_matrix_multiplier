@@ -68,7 +68,7 @@ module systolic_array #(
     localparam S_DRAIN  = 2'd2;
     localparam S_DONE   = 2'd3;
 
-    reg [1:0]  state, state_next;
+    reg [1:0]  state, state_next, prev_state;
     reg [$clog2(K_DIM+M_ROWS+N_COLS+1)-1:0] feed_cnt;
     reg [$clog2(M_ROWS+N_COLS+K_DIM+2)-1:0] drain_cnt;
 
@@ -92,10 +92,13 @@ module systolic_array #(
     // FSM sequential
     // ----------------------------------------------------------------
     always @(posedge clk or negedge rst_n) begin
-        if (!rst_n)
+        if (!rst_n) begin
             state <= S_IDLE;
-        else
+            prev_state <= S_IDLE;
+        end else begin
+            prev_state <= state;
             state <= state_next;
+        end
     end
 
     // FSM next-state
@@ -117,6 +120,8 @@ module systolic_array #(
             feed_cnt <= 0;
         else if (state == S_IDLE && state_next == S_FEED)
             feed_cnt <= 0;
+        else if (state == S_DONE && state_next == S_FEED)
+            feed_cnt <= 0;  // back-to-back: reset on DONE→FEED
         else if (state == S_FEED)
             feed_cnt <= feed_cnt + 1;
     end
@@ -127,6 +132,9 @@ module systolic_array #(
             drain_cnt <= 0;
         else if (state == S_FEED && state_next == S_DRAIN)
             drain_cnt <= 0;
+        else if (state == S_DONE && state_next == S_FEED)
+            drain_cnt <= 0;  // back-to-back: reset on DONE→FEED
+
         else if (state == S_DRAIN)
             drain_cnt <= drain_cnt + 1;
     end
@@ -178,7 +186,9 @@ module systolic_array #(
     // ----------------------------------------------------------------
     // PE array instantiation & wiring
     // ----------------------------------------------------------------
-    wire clear = (state == S_IDLE) || (state == S_DONE);
+    wire clear = (state == S_IDLE) ||
+                 (state == S_DONE) ||
+                 (prev_state == S_DONE && state == S_FEED);  // clear on DONE→FEED
 
     generate
         for (gi = 0; gi < M_ROWS; gi = gi + 1) begin : gen_row
