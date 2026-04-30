@@ -118,10 +118,13 @@ module tb_overflow;
                     errors = errors + 1;
                 end
             end
-        if (!any_overflow)
-            $display("  WARNING: overflow flag not raised!");
-        else
-            $display("  Overflow flag correctly raised");
+        if (!any_overflow) begin
+            $display("  ERROR: overflow flag not raised!");
+            errors = errors + 1;
+        end else begin
+            $display("  Overflow flag correctly raised (count=%0d/%0d PEs overflowed)",
+                     overflow_count, M_ROWS * N_COLS);
+        end
 
         #50;
 

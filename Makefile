@@ -53,9 +53,6 @@ $(SIM_BIN): $(SRCS) $(TB) | $(BUILD)
 sim: $(SIM_BIN)
 	$(SIM_BIN)
 
-# Force rebuild when parameters change
-.PHONY: $(SIM_BIN)
-
 # ----------------------------------------------------------------
 # Overflow test
 # ----------------------------------------------------------------
@@ -65,8 +62,6 @@ $(OVF_BIN): $(SRCS) $(OVF_TB) | $(BUILD)
 
 overflow: $(OVF_BIN)
 	$(OVF_BIN)
-
-.PHONY: $(OVF_BIN)
 
 # ----------------------------------------------------------------
 # Waveform (requires --trace flag — rebuild with trace enabled)

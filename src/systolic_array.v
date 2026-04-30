@@ -185,10 +185,12 @@ module systolic_array #(
             for (gj = 0; gj < N_COLS; gj = gj + 1) begin : gen_col
 
                 // Internal wiring: A flows right, B flows down
-                if (gj > 0)
+                if (gj > 0) begin : gen_a_wire
                     assign pe_a_in[gi][gj] = pe_a_out[gi][gj-1];
-                if (gi > 0)
+                end
+                if (gi > 0) begin : gen_b_wire
                     assign pe_b_in[gi][gj] = pe_b_out[gi-1][gj];
+                end
 
                 pe #(
                     .DATA_WIDTH  (DATA_WIDTH),
