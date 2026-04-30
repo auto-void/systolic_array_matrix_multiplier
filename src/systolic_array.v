@@ -68,7 +68,7 @@ module systolic_array #(
     localparam S_DRAIN  = 2'd2;
     localparam S_DONE   = 2'd3;
 
-    reg [1:0]  state, state_next, prev_state;
+    reg [1:0]  state, state_next;
     reg [$clog2(K_DIM+M_ROWS+N_COLS+1)-1:0] feed_cnt;
     reg [$clog2(M_ROWS+N_COLS+K_DIM+2)-1:0] drain_cnt;
 
@@ -94,9 +94,7 @@ module systolic_array #(
     always @(posedge clk or negedge rst_n) begin
         if (!rst_n) begin
             state <= S_IDLE;
-            prev_state <= S_IDLE;
         end else begin
-            prev_state <= state;
             state <= state_next;
         end
     end
