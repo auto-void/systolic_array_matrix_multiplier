@@ -36,7 +36,7 @@ VFLAGS   := --binary -j 0 --timing -Wno-fatal
 # Parameter defines passed to Verilator
 DEFINES  := -DM_ROWS=$(M) -DK_DIM=$(K) -DN_COLS=$(N) -DDATA_WIDTH=$(W) -DACCUM_WIDTH=$(AW)
 
-.PHONY: all sim overflow wave clean help
+.PHONY: all sim overflow neg_overflow wave clean help
 
 all: sim
 
@@ -62,6 +62,20 @@ $(OVF_BIN): $(SRCS) $(OVF_TB) | $(BUILD)
 
 overflow: $(OVF_BIN)
 	$(OVF_BIN)
+
+# ----------------------------------------------------------------
+# Negative overflow test (K_DIM=4 to trigger negative saturation)
+# ----------------------------------------------------------------
+NEG_OVF_DIR  := $(BUILD)/neg_overflow
+NEG_OVF_BIN  := $(NEG_OVF_DIR)/Vtb_overflow
+
+$(NEG_OVF_BIN): $(SRCS) $(OVF_TB) | $(BUILD)
+	$(VERILATOR) $(VFLAGS) -Mdir $(NEG_OVF_DIR) \
+		--top-module tb_overflow $(SRCS) $(OVF_TB) \
+		-DM_ROWS=2 -DK_DIM=4 -DN_COLS=2 -DDATA_WIDTH=4 -DACCUM_WIDTH=8
+
+neg_overflow: $(NEG_OVF_BIN)
+	$(NEG_OVF_BIN)
 
 # ----------------------------------------------------------------
 # Waveform (requires --trace flag — rebuild with trace enabled)
