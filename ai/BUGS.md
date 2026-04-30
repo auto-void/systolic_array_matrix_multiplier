@@ -14,13 +14,11 @@
 
 **根因**：Testbench 在拉高 valid 之后等 posedge（FSM 进 FEED），此时 state=IDLE，边界输出 0；data 在 posedge 之后才设置，但那时候 TB 已经进入下一个循环步骤，导致每拍数据都错位 1 周期。
 
-**修复**（2026-04-30）：
-- `wait(!busy)` 后加一个 `@(posedge clk)` 确保 FSM 在 IDLE
-- 然后拉高 valid，`@(posedge clk)`（FSM 进 FEED，feed_cnt=0）
-- posedge 之后立刻设 cycle-0 数据（Verilator 在同一时间步内 initial block 先于 always 完成，组合逻辑立刻更新）
-- 循环体：设 cycle-c 数据 → `@(posedge clk)`，共 fc 次
+**修复**（2026-04-30，2026-05-01 更新）：
+- 数据在 `@(posedge clk)` **之前**设置（先设 cycle-0 数据再 assert valid，循环从 c=1 开始）
+- 确保边界组合逻辑在 posedge 时已有正确值，消除 Verilator 事件调度竞态
 
-**状态**：✅ 已修复（2026-04-30）
+**状态**：✅ 已修复（2026-04-30，2026-05-01 协议统一更新）
 
 ---
 
@@ -121,32 +119,25 @@ make sim M=1 K=4 N=1
 
 **现象**：FSM 从 DONE 直接跳到 FEED（`a_valid&&b_valid` 在 DONE 状态立刻断言），第二轮计算结果异常。
 
-**根因**：`clear_acc` 由 `(state == S_IDLE) || (state == S_DONE)` 控制。当外部 master 在 DONE 状态立刻送新数据（不等 IDLE），`clear_acc` 和 `en` 信号的时序配合存在问题。
+**根因**：原 `clear` 信号包含 `prev_state==S_DONE && state==S_FEED` 条件，导致 DONE→FEED 转换时 `clear_acc` 和 `en` 同一拍为高。PE 中 `clear_acc` 优先级高于 `en`，第一拍数据被丢弃。同时 TB 在 posedge 之后才设 cycle-0 数据，边界在 clear 生效时读到零值。
 
-**修复**（2026-04-30，commit 8ed2209）：
-- 增加 `prev_state` 寄存器检测 DONE→FEED 边沿
-- `clear` 信号增加条件：`prev_state == S_DONE && state == S_FEED`
-- `feed_cnt`/`drain_cnt` 在 DONE→FEED 转换时重置
+**修复**（2026-05-01）：
+- **RTL**：去掉 `prev_state==S_DONE && state==S_FEED` 条件，`clear` 仅在 `state==S_IDLE || state==S_DONE` 时为高。DONE 状态本身保持 `clear_acc` 高，累加器在 DONE 期间已被清零。
+- **TB**：所有 testbench 改为在 posedge **之前**设置 cycle-0 数据（先设数据再 assert valid 或在循环开始前预设），确保边界组合逻辑在 FSM 进入 FEED 时已有正确值。
+- **tb_bug_verify.v**：修正 A2×B2 期望值（C2=[[70,100],[150,220]]，原错误写为 [[70,80],[150,180]]）
+
+**状态**：✅ 已修复（2026-05-01）
 
 **验证**：
-- 主测试全部 PASS（`make sim` 8 tests、`make sim M=8 K=8 N=8`、`make sim M=3 K=5 N=7`、`make overflow`）
-- 主测试的 back-to-back（Test 6）通过 `wait(!busy); @(posedge clk);` 模式经过 IDLE，规避了直接 DONE→FEED
-- `tb/tb_bug_verify.v` 的直接 DONE→FEED 测试仍有残留污染（第二轮结果 [60,100;150,220] vs 期望 [70,80;150,180]），说明 `prev_state` 条件下的 `clear_acc` 时序还需进一步调整
-
-**状态**：🟡 部分修复 — 标准 back-to-back 场景（经 IDLE）OK，直接 DONE→FEED 仍有问题
-
-**影响**：当前 testbench 通过 `wait(!busy); @(posedge clk);` 模式规避（强制经过 IDLE），但真正的 back-to-back master（如 DMA、AXI-Stream）会触发。
-
-**待修复**：`prev_state==DONE && state==FEED` 条件下，`clear_acc` 在同一 posedge 同时使 `en=1`，PE 中 `clear_acc` 优先级高于 `en`，导致第一个 FEED 周期的数据被丢弃。需要让 `clear` 在 DONE→FEED 转换后的**第一个 FEED 周期**保持高，但 `en` 在该周期保持低（或将 `clear` 提前到 DONE 状态的最后一个周期）。
-
-**复现**：
-```bash
-# 编译并运行 bug 验证测试
-CXXFLAGS="-fcoroutines" verilator --binary -j 0 --timing -Wno-fatal \
-  -DM_ROWS=2 -DK_DIM=2 -DN_COLS=2 -DDATA_WIDTH=8 -DACCUM_WIDTH=32 \
-  -Mdir build/bug_verify --top-module tb_bug_verify \
-  src/pe.v src/systolic_array.v tb/tb_bug_verify.v
-build/bug_verify/Vtb_bug_verify
+```
+make sim                  → *** ALL TESTS PASSED *** (9 tests)
+make sim M=8 K=8 N=8    → *** ALL TESTS PASSED ***
+make sim M=3 K=5 N=7    → *** ALL TESTS PASSED ***
+make sim W=16            → *** ALL TESTS PASSED ***
+make sim M=1 K=4 N=1    → *** ALL TESTS PASSED ***
+make sim M=1 K=1 N=1    → *** ALL TESTS PASSED ***
+make overflow            → *** ALL OVERFLOW TESTS PASSED ***
+tb_bug_verify Bug 1      → ✓ Back-to-back results are clean
 ```
 
 ---

@@ -28,7 +28,52 @@
 
 ---
 
-## [2026-04-30] — Bug 审查：发现 5 个新 bug（Bug 6-10）
+## [2026-05-01] — 修复 TB 时序竞态 + Bug 6 DONE→FEED clear_acc，全测试通过
+
+### 修改内容
+
+**核心问题**：Verilator 5.020 事件调度中，initial block 在 `@(posedge clk)` 之后设置 `a_data`，但组合逻辑边界在同一时间步不重新求值，导致数据总是晚 1 拍被 PE 看到。
+
+**tb/tb_systolic_array.v — feed_matrices 协议重写**
+- 改为"数据在 posedge 之前设置"协议：先预设 cycle-0 数据，再 assert valid，再 `@(posedge clk)` 进 FEED
+- 循环从 c=1 开始（cycle-0 已预设），每次设 cycle-c 数据 → `@(posedge clk)`
+- 最后多一拍 posedge 让 PE 累加最后一个 cycle 的数据
+- 删除 debug 临时代码
+
+**tb/tb_overflow.v — 同样的协议修复**
+- 预设 cycle-0 数据（-8）后再 assert valid
+- 循环从 c=1 开始
+
+**tb/tb_bug_verify.v — 协议修复 + 期望值修正**
+- 三个 feed 段全部改为"先设数据再 posedge"协议
+- 修正 A2×B2 期望值：C2=[[70,100],[150,220]]（原错误写为 [[70,80],[150,180]]）
+
+**src/systolic_array.v — Bug 6 修复**
+- `clear` 信号去掉 `prev_state==S_DONE && state==S_FEED` 条件
+- 仅在 `state==S_IDLE || state==S_DONE` 时为高
+- DONE 状态本身保持 clear_acc 高多个周期，累加器在进入 FEED 前已被清零
+- TB 在 DONE 状态预设 cycle-0 数据，边界在 FEED 第一拍就有正确值
+
+### 验证结果
+
+```
+make sim                  → *** ALL TESTS PASSED *** (9 tests)
+make sim M=8 K=8 N=8    → *** ALL TESTS PASSED ***
+make sim M=3 K=5 N=7    → *** ALL TESTS PASSED ***
+make sim W=16            → *** ALL TESTS PASSED ***
+make sim M=1 K=4 N=1    → *** ALL TESTS PASSED ***
+make sim M=1 K=1 N=1    → *** ALL TESTS PASSED ***
+make overflow            → *** ALL OVERFLOW TESTS PASSED ***
+tb_bug_verify Bug 1      → ✓ Back-to-back results are clean (no contamination)
+tb_bug_verify Bug 3      → ✓ Negative multiplication correct
+tb_bug_verify Bug 4      → ✓ result_bank preserves value correctly
+```
+
+### 关键发现
+
+Verilator 5.020 的 `initial` block 在 `@(posedge clk)` 之后恢复执行时，组合逻辑（`assign`）不会在同一时间步重新求值。这与 WORKLOG 2026-04-30 中记录的行为不同（当时 Verilator 可能是不同版本或编译选项）。解决方案：**数据必须在 `@(posedge clk)` 之前设置**，确保组合逻辑在 posedge 时已有正确值。
+
+---
 
 ### 修改内容
 

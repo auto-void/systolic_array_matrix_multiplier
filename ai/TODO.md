@@ -30,6 +30,7 @@
 
 ### 3. back-to-back 连续计算测试
 - [x] 连续喂 3 组不同矩阵，每组结果独立正确 (2026-04-30，Test 6a/6b)
+- [x] 直接 DONE→FEED 不经 IDLE 的 back-to-back 通过 (2026-05-01，tb_bug_verify Bug 1)
 - 依赖：1
 
 ### 4. 边界值测试
