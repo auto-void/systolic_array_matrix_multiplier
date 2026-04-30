@@ -115,8 +115,113 @@ make sim M=1 K=4 N=1
 
 ---
 
+## 🔴 Bug 6：Back-to-back DONE→FEED 跳过 IDLE 时累加器未清零
+
+**文件**：`src/systolic_array.v` — FSM + `clear_acc` 逻辑
+
+**现象**：FSM 从 DONE 直接跳到 FEED（`a_valid&&b_valid` 在 DONE 状态立刻断言），第二轮计算结果异常。仿真验证：第二轮结果为全零而非预期值 `[70,80;150,180]`。
+
+**根因**：`clear_acc` 由 `(state == S_IDLE) || (state == S_DONE)` 控制。当外部 master 在 DONE 状态立刻送新数据（不等 IDLE）：
+- DONE 状态：`clear=1`（`state==S_DONE`），累加器持续被清零
+- 同一 posedge：`state_next=S_FEED`（因 `a_valid&&b_valid`）
+- 下一拍：`state=S_FEED`，`clear=0`，`en=1`，但累加器在 DONE 期间已被清零，且新数据到达 PE 的时序取决于 Verilator 事件调度顺序
+
+**仿真验证**（`tb/tb_bug_verify.v`）：
+```
+Result 2: C[0][0]=0 (expect 70), C[0][1]=0 (expect 80)
+✗ BUG CONFIRMED: Back-to-back contamination!
+```
+
+**状态**：🔴 未修复
+
+**影响**：当前 testbench 通过 `wait(!busy); @(posedge clk);` 模式规避（强制经过 IDLE），但真正的 back-to-back master（如 DMA、AXI-Stream）会触发。
+
+**修复建议**：
+方案 A — FSM 层面：DONE→FEED 转换时保持 `clear` 一周期
+```verilog
+wire clear = (state == S_IDLE) || (state == S_DONE) ||
+             (state_next == S_FEED && state == S_DONE);
+```
+方案 B — 增加 `S_CLEAR` 状态：DONE→CLEAR→FEED，CLEAR 状态 `clear_acc=1, en=0`
+
+**复现**：
+```bash
+# 编译并运行 bug 验证测试
+CXXFLAGS="-fcoroutines" verilator --binary -j 0 --timing -Wno-fatal \
+  -DM_ROWS=2 -DK_DIM=2 -DN_COLS=2 -DDATA_WIDTH=8 -DACCUM_WIDTH=32 \
+  -Mdir build/bug_verify --top-module tb_bug_verify \
+  src/pe.v src/systolic_array.v tb/tb_bug_verify.v
+build/bug_verify/Vtb_bug_verify
+```
+
+---
+
+## 🟡 Bug 7：Testbench 随机值范围错误，永远不生成 127
+
+**文件**：`tb/tb_systolic_array.v` — Test 2 随机值生成
+
+**现象**：`$urandom_range(0, 2**DATA_WIDTH - 2) - (2**(DATA_WIDTH-1))` 的范围是 -128..126，永远不生成 127（8-bit signed 的最大值）。
+
+**根因**：`$urandom_range(0, 254)` 的上界是 254 而非 255，减去 128 后最大值为 126。
+
+**状态**：🟡 未修复
+
+**修复**：
+```verilog
+// 修复前：
+$urandom_range(0, 2**DATA_WIDTH - 2) - (2**(DATA_WIDTH-1))
+// 修复后：
+$urandom_range(0, 2**DATA_WIDTH - 1) - (2**(DATA_WIDTH-1))
+```
+
+**验证**：修复后 `$urandom_range(0, 255) - 128` 范围为 -128..127 ✓
+
+---
+
+## 🟡 Bug 8：Overflow TB 缺少负溢出饱和测试
+
+**文件**：`tb/tb_overflow.v`
+
+**现象**：只测试了正溢出饱和（`128 → 127`），负溢出测试被跳过。当前参数 `DATA_WIDTH=4, K_DIM=2, ACCUM_WIDTH=8` 下，`(-8)*7*2 = -112` 不会触发负溢出（`-112 > -128`）。
+
+**状态**：🟡 未修复
+
+**修复建议**：增加负溢出测试用例，使用更极端的参数：
+- 方案 A：`DATA_WIDTH=8, K_DIM=2, ACCUM_WIDTH=8`，用 `-128*127*2 = -32512` 远超 `-128`
+- 方案 B：`DATA_WIDTH=4, K_DIM=4, ACCUM_WIDTH=8`，用 `7*7*4 = 196 > 127` 测正溢出，`(-8)*7*4 = -224 < -128` 测负溢出
+
+---
+
+## 🟢 Bug 9：`check_result` Task 的 test_name 字符串编码问题
+
+**文件**：`tb/tb_systolic_array.v` — `check_result` task
+
+**现象**：Test 8 的输出显示为乱码 `��� PASSED`，因为 `check_result` 使用 `input [255:0]` 接收字符串，而 Test 8 直接用 `$display` 打印不经过 `check_result`。
+
+**状态**：🟢 未修复（仅影响显示，不影响功能验证）
+
+**修复**：将 `check_result` 的 `test_name` 参数改为 `input [8*32-1:0]`（256-bit ASCII），或改用 `string` 类型（SystemVerilog）。
+
+---
+
+## 🟢 Bug 10：`$dumpvar` 在非 trace 模式下产生 Info 警告
+
+**文件**：`tb/tb_systolic_array.v`、`tb/tb_overflow.v`
+
+**现象**：`make sim` 输出 `-Info: tb/tb_systolic_array.v:86: $dumpvar ignored, as Verilated without --trace`
+
+**状态**：🟢 未修复（仅影响输出整洁度）
+
+**修复建议**：
+- 方案 A：用 `` `ifdef DUMP `` 条件编译包裹 `$dumpfile/$dumpvars`
+- 方案 B：Makefile 的 `sim` 目标默认加 `--trace`（增加编译时间和二进制大小）
+- 方案 C：忽略（不影响功能）
+
+---
+
 ## 备注
 
-- **Bug 1+2 叠加**是当前所有仿真失败的根因
-- Bug 1 和 Bug 2 可以独立修复，也可以一起修
-- Bug 4 只影响 M=1 或 N=1 的极端情况
+- **Bug 1+2 叠加**是当前所有仿真失败的根因（已修复）
+- **Bug 6** 是新发现的 RTL 设计缺陷，影响真正的 back-to-back 场景
+- Bug 7/8 是测试覆盖不足，不影响 RTL 正确性
+- Bug 9/10 是 cosmetic 问题

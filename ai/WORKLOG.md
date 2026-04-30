@@ -28,6 +28,45 @@
 
 ---
 
+## [2026-04-30] — Bug 审查：发现 5 个新 bug（Bug 6-10）
+
+### 修改内容
+
+**ai/BUGS.md** — 新增 Bug 6-10
+- Bug 6：🔴 Back-to-back DONE→FEED 跳过 IDLE 时累加器未清零（RTL 设计缺陷）
+- Bug 7：🟡 TB 随机值范围错误，永远不生成 127
+- Bug 8：🟡 Overflow TB 缺少负溢出饱和测试
+- Bug 9：🟢 check_result test_name 字符串编码乱码
+- Bug 10：🟢 $dumpvar 非 trace 模式下产生 Info 警告
+
+**tb/tb_bug_verify.v** — 新增 bug 验证测试平台
+- Bug 6 验证：back-to-back DONE→FEED 不经 IDLE，第二轮结果异常
+- Bug 7 验证：随机值范围分析，确认 127 从未生成
+- Bug 3 验证：负数乘法正确性
+- Bug 4 验证：c_data vs result_bank 在 DONE 状态后的行为
+
+### 验证结果
+
+```
+Bug 6 仿真输出：
+  Result 2: C[0][0]=0 (expect 70), C[0][1]=0 (expect 80)
+  ✗ BUG CONFIRMED: Back-to-back contamination!
+
+Bug 7 仿真输出：
+  ✗ BUG: $urandom_range(0,254)-128 never generates 127
+
+Bug 3 验证：负数乘法正确 ✓
+Bug 4 验证：result_bank 保持正确值 ✓
+```
+
+### 关键发现
+
+1. **Bug 6 是唯一的 RTL 设计缺陷**：`clear_acc` 在 DONE→FEED 直接转换时不保证有效，需要在 FSM 层面修复。当前 TB 通过 `wait(!busy); @(posedge clk);` 规避，但真正的 back-to-back master 会触发。
+
+2. **Bug 7 是测试覆盖盲区**：随机测试从不生成 DATA_WIDTH 范围的最大值（127），可能漏掉边界 case。
+
+---
+
 ## [2026-04-30] — 修复 Bug 1/2/3，仿真全部 PASS，切换至 Verilator
 
 ### 修改内容
