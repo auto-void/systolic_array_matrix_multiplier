@@ -68,7 +68,9 @@ make neg_overflow
 
 1. **overflow_count 改为寄存器**：在 c_valid 时锁存最终值，避免 FEED 阶段的毛刺。代价：中间周期读到的是上一轮的值，对功能无影响。
 2. **feed_matrices 去掉 valid 控制**：让调用者决定何时 deassert valid，支持 back-to-back 测试模式。
-3. **en 信号保持组合逻辑**（Bug 11/12 不修）：改用寄存器 en 会改变累加时序，需要同步调整 FEED_CYCLES 和边界逻辑，改动范围太大，当前行为正确且有明确的时序依赖文档。
+3. **en 信号保持组合逻辑**（Bug 11/12 不修）：改用寄存器 en 会改变累加时序——边界组合逻辑在周期 c 输出数据，PE 需要在 c+1 才累加。当前组合逻辑 en 恰好在第一个 FEED posedge 读到旧状态（IDLE→en=0），自然产生 1 拍延迟。改用寄存器 en 后这个延迟消失，需要同步调整 FEED_CYCLES（+1）和边界逻辑（提前 1 拍输出），改动范围大且当前行为正确，留作后续优化。
+4. **test_name 截断不修**（Bug 15）：`input [255:0]` 只有 32 字节，但所有 test name 都在 32 字符内，Test 8 已绕过。改为 string 类型需改 task 签名，收益低。
+5. **unpacked array 端口不修**（Bug 19）：需重构整个接口为 result_bank + 地址读出，改动范围大，TODO #13 已跟踪。
 
 ---
 
