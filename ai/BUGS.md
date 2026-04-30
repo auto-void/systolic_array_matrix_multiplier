@@ -160,11 +160,9 @@ tb_bug_verify Bug 1      → ✓ Back-to-back results are clean
 
 **现象**：只测试了正溢出饱和（`128 → 127`），负溢出测试被跳过。当前参数 `DATA_WIDTH=4, K_DIM=2, ACCUM_WIDTH=8` 下，`(-8)*7*2 = -112` 不会触发负溢出（`-112 > -128`）。
 
-**状态**：🟡 未修复
+**状态**：✅ 已修复（2026-05-01）
 
-**修复建议**：增加负溢出测试用例，使用更极端的参数：
-- 方案 A：`DATA_WIDTH=8, K_DIM=2, ACCUM_WIDTH=8`，用 `-128*127*2 = -32512` 远超 `-128`
-- 方案 B：`DATA_WIDTH=4, K_DIM=4, ACCUM_WIDTH=8`，用 `7*7*4 = 196 > 127` 测正溢出，`(-8)*7*4 = -224 < -128` 测负溢出
+**修复**：tb_overflow.v 使用 `` `ifdef `` 接收参数，Makefile 新增 `make neg_overflow`（K_DIM=4）目标。A=-8, B=7, 每个乘积 -56, K_DIM=4 求和 -224 < -128 触发负溢出饱和到 -128。
 
 ---
 
@@ -174,9 +172,7 @@ tb_bug_verify Bug 1      → ✓ Back-to-back results are clean
 
 **现象**：Test 8 的输出显示为乱码 `��� PASSED`，因为 `check_result` 使用 `input [255:0]` 接收字符串，而 Test 8 直接用 `$display` 打印不经过 `check_result`。
 
-**状态**：🟢 未修复（仅影响显示，不影响功能验证）
-
-**修复**：将 `check_result` 的 `test_name` 参数改为 `input [8*32-1:0]`（256-bit ASCII），或改用 `string` 类型（SystemVerilog）。
+**状态**：✅ 已修复（2026-05-01，Test 8 改用 ASCII `[PASS]` 显示）
 
 ---
 
@@ -186,12 +182,9 @@ tb_bug_verify Bug 1      → ✓ Back-to-back results are clean
 
 **现象**：`make sim` 输出 `-Info: tb/tb_systolic_array.v:86: $dumpvar ignored, as Verilated without --trace`
 
-**状态**：🟢 未修复（仅影响输出整洁度）
+**修复**（2026-05-01）：用 `` `ifdef DUMP `` 条件编译包裹 `$dumpfile/$dumpvars`，默认不输出波形。需要波形时 `make sim` 加 `-DDUMP` 或 Makefile 的 `wave` 目标。
 
-**修复建议**：
-- 方案 A：用 `` `ifdef DUMP `` 条件编译包裹 `$dumpfile/$dumpvars`
-- 方案 B：Makefile 的 `sim` 目标默认加 `--trace`（增加编译时间和二进制大小）
-- 方案 C：忽略（不影响功能）
+**状态**：✅ 已修复（2026-05-01）
 
 ---
 
