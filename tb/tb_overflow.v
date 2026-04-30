@@ -11,11 +11,11 @@
 
 module tb_overflow;
 
-    parameter M_ROWS     = 2;
-    parameter K_DIM      = 2;
-    parameter N_COLS     = 2;
-    parameter DATA_WIDTH = 4;   // -8 to 7
-    parameter ACCUM_WIDTH = 8;  // -128 to 127
+    parameter M_ROWS     = `ifdef M_ROWS     `M_ROWS     `else 2 `endif;
+    parameter K_DIM      = `ifdef K_DIM      `K_DIM      `else 2 `endif;
+    parameter N_COLS     = `ifdef N_COLS     `N_COLS     `else 2 `endif;
+    parameter DATA_WIDTH = `ifdef DATA_WIDTH `DATA_WIDTH `else 4 `endif;
+    parameter ACCUM_WIDTH = `ifdef ACCUM_WIDTH `ACCUM_WIDTH `else 8 `endif;
 
     reg                              clk, rst_n;
     reg  signed [DATA_WIDTH-1:0]     a_data [0:M_ROWS-1];
@@ -55,8 +55,10 @@ module tb_overflow;
     reg signed [ACCUM_WIDTH-1:0] expected;
 
     initial begin
+        `ifdef DUMP
         $dumpfile("overflow.vcd");
         $dumpvars(0, tb_overflow);
+        `endif
 
         errors = 0;
         rst_n = 0;
@@ -147,15 +149,68 @@ module tb_overflow;
 
         // ============================================================
         // Test: Negative overflow saturation
-        // With DATA_WIDTH=4, K_DIM=2, ACCUM_WIDTH=8:
-        // Min possible sum = (-8)*7 * 2 = -112, which fits in -128..127
-        // Negative overflow impossible with these parameters.
+        // Use A=-8, B=7 for all elements. Each product = -56.
+        // Sum over K_DIM products = -56 * K_DIM.
+        // Triggers negative overflow when -56*K_DIM < -128 (i.e. K_DIM >= 3).
         // ============================================================
         $display("\n=== Negative overflow (saturation to MIN) ===");
         $display("  DATA_WIDTH=%0d, K_DIM=%0d, ACCUM_WIDTH=%0d", DATA_WIDTH, K_DIM, ACCUM_WIDTH);
-        $display("  Min possible sum = (-8)*7 * %0d = %0d (fits in %0d-bit min %0d)",
-                 K_DIM, (-8)*7*K_DIM, ACCUM_WIDTH, -(1 << (ACCUM_WIDTH-1)));
-        $display("  Negative overflow impossible with these parameters -- skipping");
+
+        if (K_DIM < 3) begin
+            $display("  K_DIM=%0d too small for negative overflow (need >=3) -- skipping", K_DIM);
+        end else begin
+            $display("  Expected sum = (-8)*7 * %0d = %0d (should saturate to -128)",
+                     K_DIM, (-8)*7*K_DIM);
+
+            feed_cycles = K_DIM + M_ROWS + N_COLS - 2;
+
+            wait (!busy);
+            @(posedge clk);
+
+            // Pre-set cycle-0 data: A=-8, B=7
+            for (i = 0; i < M_ROWS; i = i + 1)
+                a_data[i] = (0 >= i && (0 - i) < K_DIM) ? -8 : 0;
+            for (j = 0; j < N_COLS; j = j + 1)
+                b_data[j] = (0 >= j && (0 - j) < K_DIM) ? 7 : 0;
+
+            a_valid = 1; b_valid = 1;
+            @(posedge clk);
+
+            for (c = 1; c < feed_cycles; c = c + 1) begin
+                for (i = 0; i < M_ROWS; i = i + 1)
+                    a_data[i] = (c >= i && (c - i) < K_DIM) ? -8 : 0;
+                for (j = 0; j < N_COLS; j = j + 1)
+                    b_data[j] = (c >= j && (c - j) < K_DIM) ? 7 : 0;
+                @(posedge clk);
+            end
+            // Final posedge
+            for (i = 0; i < M_ROWS; i = i + 1) a_data[i] = 0;
+            for (j = 0; j < N_COLS; j = j + 1) b_data[j] = 0;
+            @(posedge clk);
+
+            a_valid = 0; b_valid = 0;
+
+            wait (c_valid); @(posedge clk);
+
+            expected = -(1 << (ACCUM_WIDTH-1));  // -128 (saturated MIN)
+            $display("  Expected C = %0d (saturated MIN)", expected);
+            for (i = 0; i < M_ROWS; i = i + 1)
+                for (j = 0; j < N_COLS; j = j + 1) begin
+                    $display("  C[%0d][%0d] = %0d, overflow = %0d",
+                             i, j, c_data[i][j], any_overflow);
+                    if (c_data[i][j] !== expected) begin
+                        $display("  MISMATCH: expected %0d, got %0d", expected, c_data[i][j]);
+                        errors = errors + 1;
+                    end
+                end
+            if (!any_overflow) begin
+                $display("  ERROR: overflow flag not raised!");
+                errors = errors + 1;
+            end else begin
+                $display("  Overflow flag correctly raised (count=%0d/%0d PEs overflowed)",
+                         overflow_count, M_ROWS * N_COLS);
+            end
+        end
 
         // ============================================================
         #100;
