@@ -137,7 +137,7 @@ module systolic_array #(
             drain_cnt <= drain_cnt + 1;
     end
 
-    // Result valid (one cycle after last PE finishes accumulation)
+    // Result valid — registered, one cycle after last PE accumulation
     always @(posedge clk or negedge rst_n) begin
         if (!rst_n)
             c_valid <= 1'b0;
@@ -247,7 +247,11 @@ module systolic_array #(
     assign c_read_data = result_bank[row_sel][col_sel];
 
     // ----------------------------------------------------------------
-    // Overflow aggregation — registered, latched on c_valid
+    // Overflow aggregation
+    // any_overflow: combinational OR of PE overflow flags (sticky in PE).
+    //   PE flags stay high until clear_acc resets them in DONE state.
+    //   TB reads after c_valid (one cycle later) — PE flags still valid.
+    // overflow_count: registered, latched on c_valid, cleared on new computation.
     // ----------------------------------------------------------------
     integer oi, oj;
     reg [7:0] ovf_cnt_live;
@@ -257,23 +261,17 @@ module systolic_array #(
             for (oj = 0; oj < N_COLS; oj = oj + 1)
                 ovf_cnt_live = ovf_cnt_live + 8'(pe_overflow[oi][oj]);
     end
-    wire ovf_any = (ovf_cnt_live != 0);
+    assign any_overflow = (ovf_cnt_live != 0);
 
-    reg ovf_any_reg;
     reg [7:0] ovf_cnt_reg;
     always @(posedge clk or negedge rst_n) begin
-        if (!rst_n) begin
-            ovf_any_reg <= 1'b0;
+        if (!rst_n)
             ovf_cnt_reg <= 8'd0;
-        end else if (c_valid) begin
-            ovf_any_reg <= ovf_any;
+        else if (c_valid)
             ovf_cnt_reg <= ovf_cnt_live;
-        end else if (state == S_IDLE) begin
-            ovf_any_reg <= 1'b0;
+        else if ((state == S_IDLE || state == S_DONE) && state_next == S_FEED)
             ovf_cnt_reg <= 8'd0;
-        end
     end
-    assign any_overflow = ovf_any_reg;
     assign overflow_count = ovf_cnt_reg;
 
     // Cycle counter — counts from start of feed to result valid

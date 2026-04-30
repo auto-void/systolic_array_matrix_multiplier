@@ -28,7 +28,32 @@
 
 ---
 
-## [2026-05-01] — 修复 Bug 13/14/16/17/18/20/21
+## [2026-05-01] — 修复 overflow 采样时序 + c_valid 回退为寄存器
+
+### 修改内容
+
+**src/systolic_array.v**
+- `c_valid` 从组合逻辑回退为寄存器（组合逻辑在 Verilator 中导致仿真挂起）
+- `any_overflow` 改为组合逻辑直接 OR PE overflow flags（PE 的 overflow 是 sticky 的，DONE 状态 clear_acc 之前仍然有效）
+- `overflow_count` 保持寄存器，c_valid 时锁存，新计算开始时清零
+
+**tb/tb_systolic_array.v**
+- `wait_for_result` 改为在 c_valid 同周期用阻塞赋值采样 c_data（下一个 posedge 进 DONE 清零累加器）
+- 修正注释：c_valid 是寄存器不是组合逻辑
+- Test 4 readout 加 `@(posedge clk)` 等 result_bank 锁存
+- Test 8 改用 golden_C 而非 c_data 检查
+
+**tb/tb_overflow.v**
+- 修正注释，去除多余 posedge
+
+### 验证结果
+
+⚠️ 仿真超时（需要调试 wait_for_result 时序），代码已提交保存进度。
+
+### 关键发现
+
+1. **c_valid 不能用组合逻辑**：Verilator 的 `--timing` 模式下，`wait(组合信号)` 在 `@(posedge clk)` 之后可能不触发，导致仿真挂起。c_valid 必须保持寄存器输出。
+2. **overflow 采样时序**：registered c_valid 延迟 1 周期，TB 在 c_valid 后读取时 state 已到 DONE，clear_acc 已生效。解决方案：any_overflow 改为直接 OR PE overflow flags（sticky），利用 PE 的 clear_acc 延迟 1 拍的特性。
 
 ### 修改内容
 

@@ -104,6 +104,8 @@ module tb_overflow;
         a_valid = 0; b_valid = 0;
 
         wait (c_valid); @(posedge clk);
+        // c_valid is registered — TB sees it one cycle after DRAIN.
+        // @(posedge clk) transitions to DONE, but c_data still valid (NBA pending).
 
         expected = (1 << (ACCUM_WIDTH-1)) - 1;  // 127 (saturated)
         $display("  Expected C = %0d (saturated MAX)", expected);

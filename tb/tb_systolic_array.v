@@ -3,13 +3,12 @@
 // ============================================================================
 // Testbench for Systolic Array Matrix Multiplier
 //
-// Staggered feeding: A[i][k] enters at cycle k+i, B[k][j] at cycle k+j.
-// Both reach PE(i,j) at cycle k+i+j — correctly aligned for accumulation.
+// c_valid is registered (one cycle after DRAIN+drain_done). The TB captures
+// c_data on the c_valid cycle — accumulators still hold results because
+// clear_acc only activates when state==DONE (next posedge).
 //
 // feed_matrices task: feeds matrix data into the array. Does NOT deassert
-// valid or wait for result — the caller must do that. This enables both
-// normal (deassert valid, wait for IDLE) and back-to-back (keep valid high,
-// DONE→FEED directly) test patterns.
+// valid or wait for result — the caller must do that.
 // ============================================================================
 
 module tb_systolic_array;
@@ -149,6 +148,8 @@ module tb_systolic_array;
         feed_matrices;
         wait_for_result;
         a_valid = 0; b_valid = 0;
+        // Wait for result_bank to latch (happens on c_valid posedge)
+        @(posedge clk);
         for (i = 0; i < M_ROWS; i = i + 1)
             for (j = 0; j < N_COLS; j = j + 1) begin
                 row_sel = `ADDR_WIDTH(M_ROWS)'(i); col_sel = `ADDR_WIDTH(N_COLS)'(j); #1;
@@ -205,6 +206,7 @@ module tb_systolic_array;
         compute_expected;
         feed_matrices;
         wait_for_result;
+        a_valid = 0; b_valid = 0;
         check_result("Test 6a");
 
         // 6b: second computation — keep valid high for DONE→FEED
@@ -216,7 +218,6 @@ module tb_systolic_array;
                 B[k][j] = DATA_WIDTH'((k + 1) * (j + 1));
         compute_expected;
         // Preset cycle-0 data BEFORE the posedge that moves FSM to DONE
-        // so when DONE→FEED triggers, boundary already has correct data.
         for (i = 0; i < M_ROWS; i = i + 1)
             if (0 >= i && (0 - i) < K_DIM)
                 a_data[i] = A[i][0 - i];
@@ -283,8 +284,8 @@ module tb_systolic_array;
             feed_matrices;
             wait_for_result;
             a_valid = 0; b_valid = 0;
-            if (c_data[0][0] !== expected_1x1) begin
-                $display("  MISMATCH: expected=%0d, got=%0d", expected_1x1, c_data[0][0]);
+            if (golden_C[0][0] !== expected_1x1) begin
+                $display("  MISMATCH: expected=%0d, got=%0d", expected_1x1, golden_C[0][0]);
                 errors = errors + 1;
             end else begin
                 $display("  [PASS] Test 8");
@@ -315,7 +316,7 @@ module tb_systolic_array;
     // ----------------------------------------------------------------
     // Feed task — feeds matrix data into the array.
     // Does NOT deassert valid or wait for result. Caller must:
-    //   1. wait_for_result (or wait(c_valid); @(posedge clk);)
+    //   1. wait_for_result
     //   2. a_valid = 0; b_valid = 0;
     //   3. #50; (settling time)
     // ----------------------------------------------------------------
@@ -369,13 +370,19 @@ module tb_systolic_array;
     endtask
 
     // ----------------------------------------------------------------
+    // Wait for c_valid (registered) and capture results.
+    // c_valid asserts one cycle after state==S_DRAIN. At that posedge,
+    // state is still DRAIN, clear_acc=0, accumulators hold valid results.
+    // We capture c_data before the next posedge transitions to DONE.
+    // ----------------------------------------------------------------
     task wait_for_result;
         begin
             wait (c_valid);
-            @(posedge clk);
+            // Capture c_data on c_valid cycle — state still DRAIN, accumulators valid
             for (i = 0; i < M_ROWS; i = i + 1)
                 for (j = 0; j < N_COLS; j = j + 1)
                     golden_C[i][j] = c_data[i][j];
+            @(posedge clk);  // transition to DONE
         end
     endtask
 
