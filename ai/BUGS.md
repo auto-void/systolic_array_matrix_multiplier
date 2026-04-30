@@ -119,30 +119,25 @@ make sim M=1 K=4 N=1
 
 **文件**：`src/systolic_array.v` — FSM + `clear_acc` 逻辑
 
-**现象**：FSM 从 DONE 直接跳到 FEED（`a_valid&&b_valid` 在 DONE 状态立刻断言），第二轮计算结果异常。仿真验证：第二轮结果为全零而非预期值 `[70,80;150,180]`。
+**现象**：FSM 从 DONE 直接跳到 FEED（`a_valid&&b_valid` 在 DONE 状态立刻断言），第二轮计算结果异常。
 
-**根因**：`clear_acc` 由 `(state == S_IDLE) || (state == S_DONE)` 控制。当外部 master 在 DONE 状态立刻送新数据（不等 IDLE）：
-- DONE 状态：`clear=1`（`state==S_DONE`），累加器持续被清零
-- 同一 posedge：`state_next=S_FEED`（因 `a_valid&&b_valid`）
-- 下一拍：`state=S_FEED`，`clear=0`，`en=1`，但累加器在 DONE 期间已被清零，且新数据到达 PE 的时序取决于 Verilator 事件调度顺序
+**根因**：`clear_acc` 由 `(state == S_IDLE) || (state == S_DONE)` 控制。当外部 master 在 DONE 状态立刻送新数据（不等 IDLE），`clear_acc` 和 `en` 信号的时序配合存在问题。
 
-**仿真验证**（`tb/tb_bug_verify.v`）：
-```
-Result 2: C[0][0]=0 (expect 70), C[0][1]=0 (expect 80)
-✗ BUG CONFIRMED: Back-to-back contamination!
-```
+**修复**（2026-04-30，commit 8ed2209）：
+- 增加 `prev_state` 寄存器检测 DONE→FEED 边沿
+- `clear` 信号增加条件：`prev_state == S_DONE && state == S_FEED`
+- `feed_cnt`/`drain_cnt` 在 DONE→FEED 转换时重置
 
-**状态**：🔴 未修复
+**验证**：
+- 主测试全部 PASS（`make sim` 8 tests、`make sim M=8 K=8 N=8`、`make sim M=3 K=5 N=7`、`make overflow`）
+- 主测试的 back-to-back（Test 6）通过 `wait(!busy); @(posedge clk);` 模式经过 IDLE，规避了直接 DONE→FEED
+- `tb/tb_bug_verify.v` 的直接 DONE→FEED 测试仍有残留污染（第二轮结果 [60,100;150,220] vs 期望 [70,80;150,180]），说明 `prev_state` 条件下的 `clear_acc` 时序还需进一步调整
+
+**状态**：🟡 部分修复 — 标准 back-to-back 场景（经 IDLE）OK，直接 DONE→FEED 仍有问题
 
 **影响**：当前 testbench 通过 `wait(!busy); @(posedge clk);` 模式规避（强制经过 IDLE），但真正的 back-to-back master（如 DMA、AXI-Stream）会触发。
 
-**修复建议**：
-方案 A — FSM 层面：DONE→FEED 转换时保持 `clear` 一周期
-```verilog
-wire clear = (state == S_IDLE) || (state == S_DONE) ||
-             (state_next == S_FEED && state == S_DONE);
-```
-方案 B — 增加 `S_CLEAR` 状态：DONE→CLEAR→FEED，CLEAR 状态 `clear_acc=1, en=0`
+**待修复**：`prev_state==DONE && state==FEED` 条件下，`clear_acc` 在同一 posedge 同时使 `en=1`，PE 中 `clear_acc` 优先级高于 `en`，导致第一个 FEED 周期的数据被丢弃。需要让 `clear` 在 DONE→FEED 转换后的**第一个 FEED 周期**保持高，但 `en` 在该周期保持低（或将 `clear` 提前到 DONE 状态的最后一个周期）。
 
 **复现**：
 ```bash
@@ -164,17 +159,7 @@ build/bug_verify/Vtb_bug_verify
 
 **根因**：`$urandom_range(0, 254)` 的上界是 254 而非 255，减去 128 后最大值为 126。
 
-**状态**：🟡 未修复
-
-**修复**：
-```verilog
-// 修复前：
-$urandom_range(0, 2**DATA_WIDTH - 2) - (2**(DATA_WIDTH-1))
-// 修复后：
-$urandom_range(0, 2**DATA_WIDTH - 1) - (2**(DATA_WIDTH-1))
-```
-
-**验证**：修复后 `$urandom_range(0, 255) - 128` 范围为 -128..127 ✓
+**状态**：✅ 已修复（2026-04-30，commit 8ed2209，随 Bug 6 一起修复）
 
 ---
 
