@@ -71,7 +71,8 @@ module tb_bug_verify;
         // Matrices for test 2
         A2[0][0] = 10; A2[0][1] = 20; A2[1][0] = 30; A2[1][1] = 40;
         B2[0][0] = 1;  B2[0][1] = 2;  B2[1][0] = 3;  B2[1][1] = 4;
-        // C2 = [[70, 80], [150, 180]]
+        // C2 = [[10*1+20*3, 10*2+20*4], [30*1+40*3, 30*2+40*4]]
+        //    = [[70, 100], [150, 220]]
 
         #25; rst_n = 1; #10;
         fc = K_DIM + M_ROWS + N_COLS - 2;  // 4
@@ -85,18 +86,29 @@ module tb_bug_verify;
 
         // First computation
         wait (!busy); @(posedge clk);
+
+        // Pre-set cycle-0 data
+        for (i = 0; i < M_ROWS; i = i + 1)
+            a_data[i] = (0 >= i && (0 - i) < K_DIM) ? A1[i][0 - i] : 0;
+        for (j = 0; j < N_COLS; j = j + 1)
+            b_data[j] = (0 >= j && (0 - j) < K_DIM) ? B1[0 - j][j] : 0;
+
         a_valid = 1; b_valid = 1;
-        @(posedge clk);
-        for (c = 0; c < fc; c = c + 1) begin
+        @(posedge clk);  // FSM: IDLE→FEED, boundary has cycle-0 data
+
+        for (c = 1; c < fc; c = c + 1) begin
             for (i = 0; i < M_ROWS; i = i + 1)
                 a_data[i] = (c >= i && (c - i) < K_DIM) ? A1[i][c - i] : 0;
             for (j = 0; j < N_COLS; j = j + 1)
                 b_data[j] = (c >= j && (c - j) < K_DIM) ? B1[c - j][j] : 0;
             @(posedge clk);
         end
-        a_valid = 0; b_valid = 0;
+        // Final posedge for last cycle's accumulation
         for (i = 0; i < M_ROWS; i = i + 1) a_data[i] = 0;
         for (j = 0; j < N_COLS; j = j + 1) b_data[j] = 0;
+        @(posedge clk);
+
+        a_valid = 0; b_valid = 0;
 
         // Wait for result
         wait (c_valid); @(posedge clk);
@@ -110,28 +122,38 @@ module tb_bug_verify;
         // DON'T add extra @(posedge clk) — start immediately while FSM is in DONE
         // This is the "true back-to-back" scenario
 
-        // Feed second computation IMMEDIATELY
+        // Feed second computation IMMEDIATELY (back-to-back, no IDLE gap)
+        // Pre-set cycle-0 data for A2/B2
+        for (i = 0; i < M_ROWS; i = i + 1)
+            a_data[i] = (0 >= i && (0 - i) < K_DIM) ? A2[i][0 - i] : 0;
+        for (j = 0; j < N_COLS; j = j + 1)
+            b_data[j] = (0 >= j && (0 - j) < K_DIM) ? B2[0 - j][j] : 0;
+
         a_valid = 1; b_valid = 1;
         @(posedge clk);  // FSM: DONE→FEED (skipping IDLE!)
-        for (c = 0; c < fc; c = c + 1) begin
+
+        for (c = 1; c < fc; c = c + 1) begin
             for (i = 0; i < M_ROWS; i = i + 1)
                 a_data[i] = (c >= i && (c - i) < K_DIM) ? A2[i][c - i] : 0;
             for (j = 0; j < N_COLS; j = j + 1)
                 b_data[j] = (c >= j && (c - j) < K_DIM) ? B2[c - j][j] : 0;
             @(posedge clk);
         end
-        a_valid = 0; b_valid = 0;
+        // Final posedge for last cycle's accumulation
         for (i = 0; i < M_ROWS; i = i + 1) a_data[i] = 0;
         for (j = 0; j < N_COLS; j = j + 1) b_data[j] = 0;
+        @(posedge clk);
+
+        a_valid = 0; b_valid = 0;
 
         wait (c_valid); @(posedge clk);
-        $display("  Result 2: C[0][0]=%0d (expect 70), C[0][1]=%0d (expect 80), C[1][0]=%0d (expect 150), C[1][1]=%0d (expect 180)",
+        $display("  Result 2: C[0][0]=%0d (expect 70), C[0][1]=%0d (expect 100), C[1][0]=%0d (expect 150), C[1][1]=%0d (expect 220)",
                  c_data[0][0], c_data[0][1], c_data[1][0], c_data[1][1]);
 
-        if (c_data[0][0] !== 32'sd70 || c_data[0][1] !== 32'sd80 ||
-            c_data[1][0] !== 32'sd150 || c_data[1][1] !== 32'sd180) begin
+        if (c_data[0][0] !== 32'sd70 || c_data[0][1] !== 32'sd100 ||
+            c_data[1][0] !== 32'sd150 || c_data[1][1] !== 32'sd220) begin
             $display("  ✗ BUG CONFIRMED: Back-to-back contamination! Second result includes first result's accumulation.");
-            $display("    Expected [70,80;150,180], got [%0d,%0d;%0d,%0d]",
+            $display("    Expected [70,100;150,220], got [%0d,%0d;%0d,%0d]",
                      c_data[0][0], c_data[0][1], c_data[1][0], c_data[1][1]);
             errors = errors + 1;
         end else begin
@@ -183,18 +205,29 @@ module tb_bug_verify;
             B3[0][0] = 5;  B3[0][1] = -6; B3[1][0] = -7; B3[1][1] = 8;
 
             wait (!busy); @(posedge clk);
+
+            // Pre-set cycle-0 data
+            for (i = 0; i < M_ROWS; i = i + 1)
+                a_data[i] = (0 >= i && (0 - i) < K_DIM) ? A3[i][0 - i] : 0;
+            for (j = 0; j < N_COLS; j = j + 1)
+                b_data[j] = (0 >= j && (0 - j) < K_DIM) ? B3[0 - j][j] : 0;
+
             a_valid = 1; b_valid = 1;
             @(posedge clk);
-            for (c = 0; c < fc; c = c + 1) begin
+
+            for (c = 1; c < fc; c = c + 1) begin
                 for (i = 0; i < M_ROWS; i = i + 1)
                     a_data[i] = (c >= i && (c - i) < K_DIM) ? A3[i][c - i] : 0;
                 for (j = 0; j < N_COLS; j = j + 1)
                     b_data[j] = (c >= j && (c - j) < K_DIM) ? B3[c - j][j] : 0;
                 @(posedge clk);
             end
-            a_valid = 0; b_valid = 0;
+            // Final posedge
             for (i = 0; i < M_ROWS; i = i + 1) a_data[i] = 0;
             for (j = 0; j < N_COLS; j = j + 1) b_data[j] = 0;
+            @(posedge clk);
+
+            a_valid = 0; b_valid = 0;
 
             wait (c_valid); @(posedge clk);
             $display("  C[0][0]=%0d (expect 9), C[0][1]=%0d (expect -10)", c_data[0][0], c_data[0][1]);

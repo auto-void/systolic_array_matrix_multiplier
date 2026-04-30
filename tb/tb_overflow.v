@@ -77,15 +77,29 @@ module tb_overflow;
 
         feed_cycles = K_DIM + M_ROWS + N_COLS - 2;  // 4
 
-        // Protocol: assert valid, @posedge (FSM enters FEED, feed_cnt=0)
-        // then for each cycle c=0..feed_cycles-1: set data, @posedge
+        // Protocol: pre-set cycle-0 data, assert valid, @posedge (FSM enters FEED)
+        // then for each remaining cycle: set data, @posedge
         wait (!busy);
         @(posedge clk);  // ensure we are in IDLE (not DONE)
 
-        a_valid = 1; b_valid = 1;
-        @(posedge clk);  // FSM: IDLE->FEED, feed_cnt=0
+        // Pre-set cycle-0 data BEFORE asserting valid
+        for (i = 0; i < M_ROWS; i = i + 1) begin
+            if (0 >= i && (0 - i) < K_DIM)
+                a_data[i] = -8;
+            else
+                a_data[i] = 0;
+        end
+        for (j = 0; j < N_COLS; j = j + 1) begin
+            if (0 >= j && (0 - j) < K_DIM)
+                b_data[j] = -8;
+            else
+                b_data[j] = 0;
+        end
 
-        for (c = 0; c < feed_cycles; c = c + 1) begin
+        a_valid = 1; b_valid = 1;
+        @(posedge clk);  // FSM: IDLE->FEED, feed_cnt=0, boundary has cycle-0 data
+
+        for (c = 1; c < feed_cycles; c = c + 1) begin
             for (i = 0; i < M_ROWS; i = i + 1) begin
                 if (c >= i && (c - i) < K_DIM)
                     a_data[i] = -8;
@@ -101,9 +115,12 @@ module tb_overflow;
             @(posedge clk);
         end
 
-        a_valid = 0; b_valid = 0;
+        // Final posedge: PE accumulates last cycle's product
         for (i = 0; i < M_ROWS; i = i + 1) a_data[i] = 0;
         for (j = 0; j < N_COLS; j = j + 1) b_data[j] = 0;
+        @(posedge clk);
+
+        a_valid = 0; b_valid = 0;
 
         wait (c_valid); @(posedge clk);
 

@@ -296,50 +296,48 @@ module tb_systolic_array;
     // ----------------------------------------------------------------
     // Staggered feed task
     //
-    // RTL/sim timing model:
-    //   - After @(posedge clk) in the initial block, assignments are
-    //     processed in the same time step, allowing combinational logic
-    //     to re-evaluate immediately (initial block resumes before the
-    //     always @(posedge) monitor sees the updated posedge values).
-    //   - PE accumulator is registered: it captures pe_a_in/pe_b_in
-    //     on the NEXT posedge after the combinational boundary updates.
+    // Protocol: set data BEFORE @(posedge clk) so the combinational
+    // boundary has the correct values when the posedge arrives.
     //
-    // Correct protocol:
-    //   1. Assert valid (a_data=0) - FSM sees valid
-    //   2. @(posedge clk)  - FSM: IDLE->FEED, feed_cnt=0
-    //                         initial block resumes, sets cycle-0 data
-    //                         boundary immediately updates pe_a_in (comb)
-    //   3. @(posedge clk)  - feed_cnt=1, PE accumulates cycle-0 product
-    //                         initial block sets cycle-1 data
-    //   ...
-    //   fc+1. @(posedge clk) - feed_cnt=fc-1, feed_done -> DRAIN
-    //                          PE accumulates cycle-(fc-1) product
-    //   Deassert valid.
+    // Cycle timeline:
+    //   1. Wait for !busy + extra posedge (ensure FSM in IDLE)
+    //   2. Set cycle-0 data BEFORE posedge
+    //   3. Assert valid + @(posedge clk) → FSM enters FEED
+    //      boundary sees cycle-0 data, PE accumulates on NEXT posedge
+    //   4. Set cycle-1 data BEFORE next posedge
+    //   5. @(posedge clk) → PE accumulates cycle-0 product
+    //   ... repeat ...
+    //   Last: set cycle-(fc-1) data, @(posedge clk) → PE accum cycle-(fc-2)
+    //         set zero data, @(posedge clk) → PE accum cycle-(fc-1)
     // ----------------------------------------------------------------
     task feed_matrices;
         integer c, ii, jj, fc;
         begin
             wait (!busy);
-            // Extra posedge: if FSM is in DONE state (busy=0 but not IDLE),
-            // wait one more cycle for it to transition to IDLE before we
-            // assert valid again. Without this, valid asserted in DONE causes
-            // FSM to jump DONE->FEED while clear_acc is still high.
-            @(posedge clk);
+            @(posedge clk);  // ensure FSM in IDLE
 
-            // FEED_CYCLES = K + M + N - 2 (matching RTL)
             fc = K_DIM + M_ROWS + N_COLS - 2;
 
-            // Assert valid (data=0), FSM will transition IDLE->FEED
+            // Pre-set cycle-0 data BEFORE asserting valid
+            for (ii = 0; ii < M_ROWS; ii = ii + 1)
+                if (0 >= ii && (0 - ii) < K_DIM)
+                    a_data[ii] = A[ii][0 - ii];
+                else
+                    a_data[ii] = 0;
+            for (jj = 0; jj < N_COLS; jj = jj + 1)
+                if (0 >= jj && (0 - jj) < K_DIM)
+                    b_data[jj] = B[0 - jj][jj];
+                else
+                    b_data[jj] = 0;
+
+            // Assert valid — FSM will enter FEED on next posedge
             a_valid = 1;
             b_valid = 1;
+            @(posedge clk);  // FSM: IDLE→FEED, feed_cnt=0, boundary has cycle-0 data
 
-            // posedge: FSM enters FEED, feed_cnt=0
-            // After this posedge, initial block sets cycle-0 data,
-            // combinational boundary immediately picks it up.
-            @(posedge clk);
-
-            // For each of the fc FEED cycles: set data, then @posedge
-            for (c = 0; c < fc; c = c + 1) begin
+            // Feed remaining fc-1 cycles: set cycle-c data, then posedge
+            // PE accumulates cycle-(c-1) product at each posedge
+            for (c = 1; c < fc; c = c + 1) begin
                 for (ii = 0; ii < M_ROWS; ii = ii + 1)
                     if (c >= ii && (c - ii) < K_DIM)
                         a_data[ii] = A[ii][c - ii];
@@ -353,10 +351,14 @@ module tb_systolic_array;
                 @(posedge clk);
             end
 
-            a_valid = 0;
-            b_valid = 0;
+            // Final posedge: PE accumulates cycle-(fc-1) product
+            // Set data to zero for the drain
             for (ii = 0; ii < M_ROWS; ii = ii + 1) a_data[ii] = 0;
             for (jj = 0; jj < N_COLS; jj = jj + 1) b_data[jj] = 0;
+            @(posedge clk);
+
+            a_valid = 0;
+            b_valid = 0;
         end
     endtask
 
