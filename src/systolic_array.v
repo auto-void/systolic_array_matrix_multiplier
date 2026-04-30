@@ -186,9 +186,12 @@ module systolic_array #(
     // ----------------------------------------------------------------
     // PE array instantiation & wiring
     // ----------------------------------------------------------------
-    wire clear = (state == S_IDLE) ||
-                 (state == S_DONE) ||
-                 (prev_state == S_DONE && state == S_FEED);  // clear on DONE→FEED
+    // Clear accumulator in IDLE and DONE states.
+    // No DONE→FEED edge detection needed — DONE state keeps clear high
+    // for multiple cycles, ensuring accumulator is zero before FEED starts.
+    // The testbench pre-sets cycle-0 data while in DONE state so the
+    // boundary has it ready when the first FEED posedge arrives.
+    wire clear = (state == S_IDLE) || (state == S_DONE);
 
     generate
         for (gi = 0; gi < M_ROWS; gi = gi + 1) begin : gen_row
