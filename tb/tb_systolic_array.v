@@ -81,10 +81,12 @@ module tb_systolic_array;
     initial clk = 0;
     always #5 clk = ~clk;
 
+    `ifdef DUMP
     initial begin
         $dumpfile("systolic_array.vcd");
         $dumpvars(0, tb_systolic_array);
     end
+    `endif
 
     initial begin
         errors = 0;
@@ -268,7 +270,7 @@ module tb_systolic_array;
                 $display("  MISMATCH: expected=%0d, got=%0d", expected_1x1, c_data[0][0]);
                 errors = errors + 1;
             end else begin
-                $display("  ��� PASSED");
+                $display("  [PASS] Test 8");
             end
         end
         #50;
