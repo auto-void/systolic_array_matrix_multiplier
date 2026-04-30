@@ -38,7 +38,7 @@ DEFINES  := -DM_ROWS=$(M) -DK_DIM=$(K) -DN_COLS=$(N) -DDATA_WIDTH=$(W) -DACCUM_W
 
 .PHONY: all sim overflow neg_overflow wave clean help
 
-all: sim
+all: sim overflow
 
 # ----------------------------------------------------------------
 # Main simulation
@@ -78,12 +78,17 @@ neg_overflow: $(NEG_OVF_BIN)
 	$(NEG_OVF_BIN)
 
 # ----------------------------------------------------------------
-# Waveform (requires --trace flag — rebuild with trace enabled)
+# Waveform (separate build dir to avoid recompiling sim)
 # ----------------------------------------------------------------
-wave:
-	$(VERILATOR) $(VFLAGS) --trace $(DEFINES) -Mdir $(SIM_DIR) \
+WAVE_DIR  := $(BUILD)/wave
+WAVE_BIN  := $(WAVE_DIR)/Vtb_systolic_array
+
+$(WAVE_BIN): $(SRCS) $(TB) | $(BUILD)
+	$(VERILATOR) $(VFLAGS) --trace $(DEFINES) -Mdir $(WAVE_DIR) \
 		--top-module tb_systolic_array $(SRCS) $(TB)
-	$(SIM_BIN) +verilator+traceoff  # generates systolic_array.vcd
+
+wave: $(WAVE_BIN)
+	$(WAVE_BIN) +verilator+traceoff
 	$(GTKWAVE) systolic_array.vcd &
 
 # ----------------------------------------------------------------
@@ -95,6 +100,7 @@ clean:
 
 help:
 	@echo "Usage:"
+	@echo "  make all              - sim + overflow (default)"
 	@echo "  make sim              - Compile and run simulation (default 4x4x4)"
 	@echo "  make sim M=8 K=8 N=8  - 8x8 x 8x8 matrix multiply"
 	@echo "  make sim M=3 K=5 N=7  - 3x5 x 5x7 matrix multiply"

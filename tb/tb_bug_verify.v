@@ -170,7 +170,7 @@ module tb_bug_verify;
             saw_max = 0; saw_min = 0;
             for (i = 0; i < 10000; i = i + 1) begin
                 val = $urandom_range(0, 2**DATA_WIDTH - 2) - (2**(DATA_WIDTH-1));
-                if (val == 127) saw_max = 1;
+                if (val == (1 << (DATA_WIDTH-1)) - 1) saw_max = 1;
                 if (val == -128) saw_min = 1;
             end
             if (!saw_max) begin

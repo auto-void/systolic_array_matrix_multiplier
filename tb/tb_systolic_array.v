@@ -6,27 +6,10 @@
 // Staggered feeding: A[i][k] enters at cycle k+i, B[k][j] at cycle k+j.
 // Both reach PE(i,j) at cycle k+i+j — correctly aligned for accumulation.
 //
-// Timing model (Verilator / RTL):
-//   - Boundary is combinational: pe_a_in[i][0] = a_data[i] when state==FEED
-//     and feed_cnt matches the stagger condition.
-//   - PE accumulates on posedge: reads the combinational pe_a_in from the
-//     PREVIOUS cycle's a_data assignment.
-//
-// Protocol for feed_matrices:
-//   1. Assert a_valid/b_valid
-//   2. @(posedge clk)  ← FSM: IDLE→FEED, feed_cnt resets to 0
-//                         a_data still holds zeros (set before valid)
-//                         boundary outputs 0 (feed_cnt=0 but data=0)
-//   WAIT: TB now sets cycle-0 data AFTER this posedge
-//   3. Set cycle-0 data (before next posedge)
-//   4. @(posedge clk)  ← feed_cnt=0, boundary reads cycle-0 data
-//   5. Set cycle-1 data (before next posedge)
-//   6. @(posedge clk)  ← feed_cnt=1, boundary reads cycle-1 data,
-//                         PE accumulates cycle-0 product
-//   ... repeat for c = 1..fc-1 ...
-//   4+fc. @(posedge clk)  ← feed_cnt=fc-1 → feed_done → DRAIN
-//                           PE accumulates cycle-(fc-1) product
-//   Deassert valid.
+// feed_matrices task: feeds matrix data into the array. Does NOT deassert
+// valid or wait for result — the caller must do that. This enables both
+// normal (deassert valid, wait for IDLE) and back-to-back (keep valid high,
+// DONE→FEED directly) test patterns.
 // ============================================================================
 
 module tb_systolic_array;
@@ -113,6 +96,7 @@ module tb_systolic_array;
         compute_expected;
         feed_matrices;
         wait_for_result;
+        a_valid = 0; b_valid = 0;
         check_result("Test 1");
         $display("  Computation took %0d cycles", cycle_count);
         #50;
@@ -130,6 +114,7 @@ module tb_systolic_array;
         compute_expected;
         feed_matrices;
         wait_for_result;
+        a_valid = 0; b_valid = 0;
         check_result("Test 2");
         #50;
 
@@ -146,6 +131,7 @@ module tb_systolic_array;
         compute_expected;
         feed_matrices;
         wait_for_result;
+        a_valid = 0; b_valid = 0;
         check_result("Test 3");
         #50;
 
@@ -162,6 +148,7 @@ module tb_systolic_array;
         compute_expected;
         feed_matrices;
         wait_for_result;
+        a_valid = 0; b_valid = 0;
         for (i = 0; i < M_ROWS; i = i + 1)
             for (j = 0; j < N_COLS; j = j + 1) begin
                 row_sel = `ADDR_WIDTH(M_ROWS)'(i); col_sel = `ADDR_WIDTH(N_COLS)'(j); #1;
@@ -177,26 +164,19 @@ module tb_systolic_array;
 
         // ============================================================
         // Test 5: Overflow detection
-        //
-        // With standard ACCUM_WIDTH=32 and DATA_WIDTH=8, the max possible
-        // sum for M×K×N=4×4×4 is:
-        //   max(A)*max(B)*K = 126*126*4 = 63,504 < 2^31-1 = 2,147,483,647
-        // So no overflow occurs. We verify overflow_count==0 (detection works).
-        // To see actual saturation, run: make overflow (ACCUM_WIDTH=8)
         // ============================================================
         $display("\n=== Test 5: Overflow detection ===");
         $display("  DATA_WIDTH=%0d, ACCUM_WIDTH=%0d", DATA_WIDTH, ACCUM_WIDTH);
         for (i = 0; i < M_ROWS; i = i + 1)
             for (k = 0; k < K_DIM; k = k + 1)
-                A[i][k] = (1 << (DATA_WIDTH-1)) - 1;  // 126 or 127
+                A[i][k] = (1 << (DATA_WIDTH-1)) - 1;
         for (k = 0; k < K_DIM; k = k + 1)
             for (j = 0; j < N_COLS; j = j + 1)
-                B[k][j] = (1 << (DATA_WIDTH-1)) - 1;  // 126 or 127
+                B[k][j] = (1 << (DATA_WIDTH-1)) - 1;
         compute_expected;
         feed_matrices;
         wait_for_result;
-        // With ACCUM_WIDTH=32, overflow should NOT occur for these sizes.
-        // Verify overflow detection mechanism is wired correctly.
+        a_valid = 0; b_valid = 0;
         if (any_overflow) begin
             $display("  UNEXPECTED: overflow flag raised (overflow_count=%0d)", overflow_count);
             $display("  → FAILED (overflow should not occur with ACCUM_WIDTH=%0d)", ACCUM_WIDTH);
@@ -212,9 +192,10 @@ module tb_systolic_array;
         #50;
 
         // ============================================================
-        // Test 6: Back-to-back
+        // Test 6: Back-to-back (DONE→FEED without IDLE gap)
         // ============================================================
         $display("\n=== Test 6: Back-to-back computation ===");
+        // 6a: first computation
         for (i = 0; i < M_ROWS; i = i + 1)
             for (k = 0; k < K_DIM; k = k + 1)
                 A[i][k] = DATA_WIDTH'(i + k + 1);
@@ -226,6 +207,7 @@ module tb_systolic_array;
         wait_for_result;
         check_result("Test 6a");
 
+        // 6b: second computation — keep valid high for DONE→FEED
         for (i = 0; i < M_ROWS; i = i + 1)
             for (k = 0; k < K_DIM; k = k + 1)
                 A[i][k] = DATA_WIDTH'((i + 1) * (k + 1));
@@ -233,13 +215,47 @@ module tb_systolic_array;
             for (j = 0; j < N_COLS; j = j + 1)
                 B[k][j] = DATA_WIDTH'((k + 1) * (j + 1));
         compute_expected;
-        feed_matrices;
+        // Preset cycle-0 data BEFORE the posedge that moves FSM to DONE
+        // so when DONE→FEED triggers, boundary already has correct data.
+        for (i = 0; i < M_ROWS; i = i + 1)
+            if (0 >= i && (0 - i) < K_DIM)
+                a_data[i] = A[i][0 - i];
+            else
+                a_data[i] = 0;
+        for (j = 0; j < N_COLS; j = j + 1)
+            if (0 >= j && (0 - j) < K_DIM)
+                b_data[j] = B[0 - j][j];
+            else
+                b_data[j] = 0;
+        // valid stays high from 6a → FSM sees DONE→FEED on next posedge
+        @(posedge clk);  // FSM: DONE→FEED, feed_cnt=0
+        begin : feed_6b
+            integer c, fc, ii, jj;
+            fc = K_DIM + M_ROWS + N_COLS - 2;
+            for (c = 1; c < fc; c = c + 1) begin
+                for (ii = 0; ii < M_ROWS; ii = ii + 1)
+                    if (c >= ii && (c - ii) < K_DIM)
+                        a_data[ii] = A[ii][c - ii];
+                    else
+                        a_data[ii] = 0;
+                for (jj = 0; jj < N_COLS; jj = jj + 1)
+                    if (c >= jj && (c - jj) < K_DIM)
+                        b_data[jj] = B[c - jj][jj];
+                    else
+                        b_data[jj] = 0;
+                @(posedge clk);
+            end
+            for (ii = 0; ii < M_ROWS; ii = ii + 1) a_data[ii] = 0;
+            for (jj = 0; jj < N_COLS; jj = jj + 1) b_data[jj] = 0;
+            @(posedge clk);
+        end
+        a_valid = 0; b_valid = 0;
         wait_for_result;
         check_result("Test 6b (back-to-back)");
         #50;
 
         // ============================================================
-        // Test 7: All-zero matrices — result must be all zeros
+        // Test 7: All-zero matrices
         // ============================================================
         $display("\n=== Test 7: All-zero matrices ===");
         for (i = 0; i < M_ROWS; i = i + 1)
@@ -251,21 +267,22 @@ module tb_systolic_array;
         compute_expected;
         feed_matrices;
         wait_for_result;
+        a_valid = 0; b_valid = 0;
         check_result("Test 7 (all-zero)");
         #50;
 
         // ============================================================
-        // Test 8: Single-element (1x1 x 1x1) — minimal size
+        // Test 8: Single-element (1x1 x 1x1)
         // ============================================================
         $display("\n=== Test 8: Single-element 1x1 x 1x1 ===");
         begin
             reg signed [ACCUM_WIDTH-1:0] expected_1x1;
-            // Set A=1, B=1 => C[0][0]=1
             A[0][0] = DATA_WIDTH'(1);
             B[0][0] = DATA_WIDTH'(1);
             expected_1x1 = 1;
             feed_matrices;
             wait_for_result;
+            a_valid = 0; b_valid = 0;
             if (c_data[0][0] !== expected_1x1) begin
                 $display("  MISMATCH: expected=%0d, got=%0d", expected_1x1, c_data[0][0]);
                 errors = errors + 1;
@@ -296,21 +313,11 @@ module tb_systolic_array;
     endtask
 
     // ----------------------------------------------------------------
-    // Staggered feed task
-    //
-    // Protocol: set data BEFORE @(posedge clk) so the combinational
-    // boundary has the correct values when the posedge arrives.
-    //
-    // Cycle timeline:
-    //   1. Wait for !busy + extra posedge (ensure FSM in IDLE)
-    //   2. Set cycle-0 data BEFORE posedge
-    //   3. Assert valid + @(posedge clk) → FSM enters FEED
-    //      boundary sees cycle-0 data, PE accumulates on NEXT posedge
-    //   4. Set cycle-1 data BEFORE next posedge
-    //   5. @(posedge clk) → PE accumulates cycle-0 product
-    //   ... repeat ...
-    //   Last: set cycle-(fc-1) data, @(posedge clk) → PE accum cycle-(fc-2)
-    //         set zero data, @(posedge clk) → PE accum cycle-(fc-1)
+    // Feed task — feeds matrix data into the array.
+    // Does NOT deassert valid or wait for result. Caller must:
+    //   1. wait_for_result (or wait(c_valid); @(posedge clk);)
+    //   2. a_valid = 0; b_valid = 0;
+    //   3. #50; (settling time)
     // ----------------------------------------------------------------
     task feed_matrices;
         integer c, ii, jj, fc;
@@ -335,10 +342,9 @@ module tb_systolic_array;
             // Assert valid — FSM will enter FEED on next posedge
             a_valid = 1;
             b_valid = 1;
-            @(posedge clk);  // FSM: IDLE→FEED, feed_cnt=0, boundary has cycle-0 data
+            @(posedge clk);  // FSM: IDLE→FEED, feed_cnt=0
 
-            // Feed remaining fc-1 cycles: set cycle-c data, then posedge
-            // PE accumulates cycle-(c-1) product at each posedge
+            // Feed remaining fc-1 cycles
             for (c = 1; c < fc; c = c + 1) begin
                 for (ii = 0; ii < M_ROWS; ii = ii + 1)
                     if (c >= ii && (c - ii) < K_DIM)
@@ -353,14 +359,12 @@ module tb_systolic_array;
                 @(posedge clk);
             end
 
-            // Final posedge: PE accumulates cycle-(fc-1) product
-            // Set data to zero for the drain
+            // Final posedge: PE accumulates last cycle's product
             for (ii = 0; ii < M_ROWS; ii = ii + 1) a_data[ii] = 0;
             for (jj = 0; jj < N_COLS; jj = jj + 1) b_data[jj] = 0;
             @(posedge clk);
 
-            a_valid = 0;
-            b_valid = 0;
+            // valid stays HIGH — caller decides when to deassert
         end
     endtask
 
@@ -378,7 +382,9 @@ module tb_systolic_array;
     // ----------------------------------------------------------------
     task check_result;
         input [255:0] test_name;
+        integer errors_before;
         begin
+            errors_before = errors;
             $display("  Expected C:");
             for (i = 0; i < M_ROWS; i = i + 1) begin
                 $write("    ");
@@ -400,8 +406,8 @@ module tb_systolic_array;
                                  i, j, expected_C[i][j], golden_C[i][j]);
                         errors = errors + 1;
                     end
-            if (errors == 0) $display("  → PASSED");
-            else             $display("  → FAILED");
+            if (errors == errors_before) $display("  → PASSED");
+            else                         $display("  → FAILED");
         end
     endtask
 

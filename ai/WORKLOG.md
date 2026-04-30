@@ -28,6 +28,50 @@
 
 ---
 
+## [2026-05-01] — 修复 Bug 13/14/16/17/18/20/21
+
+### 修改内容
+
+**src/systolic_array.v — Bug 17/18 修复**
+- Bug 17：`overflow_count` 从组合逻辑改为寄存器输出，在 `c_valid` 时锁存最终值，消除计算过程中毛刺
+- Bug 18：`cycle_count` 清零条件从 `state==S_IDLE && state_next==S_FEED` 改为 `state_next==S_FEED && state!=S_FEED`，DONE→FEED 时也会重置
+- `any_overflow` 也改为寄存器输出，在 `c_valid` 时锁存，IDLE 时清零
+
+**tb/tb_systolic_array.v — Bug 13/14 修复**
+- Bug 13：`feed_matrices` task 末尾去掉 `a_valid=0; b_valid=0` 和多余的 `@(posedge clk)`，task 只负责喂数据，由调用者控制 valid 和等待结果
+- Bug 14：`check_result` task 改用 `errors_before` 局部变量，只检查本次比较是否产生新 error
+- Test 6b 重写为真正的 DONE→FEED back-to-back：valid 保持高电平，预设 cycle-0 数据后直接进入下一轮 FEED
+
+**tb/tb_overflow.v — 协议统一**
+- 同步 feed_matrices 协议：去掉末尾多余 posedge，valid 由调用者控制
+
+**tb/tb_bug_verify.v — Bug 16 修复**
+- 随机范围检查从硬编码 `127` 改为 `(1 << (DATA_WIDTH-1)) - 1`
+
+**Makefile — Bug 20/21 修复**
+- Bug 20：`wave` 目标使用独立 build dir `$(BUILD)/wave`，不再覆盖 `sim` 的编译产物
+- Bug 21：`all` 目标从 `sim` 改为 `sim overflow`
+
+### 验证结果
+
+⚠️ 未仿真验证（环境无 verilator）。所有修改基于逻辑推演，需在有 verilator 的环境跑：
+```
+make sim
+make sim M=8 K=8 N=8
+make sim M=3 K=5 N=7
+make sim W=16
+make overflow
+make neg_overflow
+```
+
+### 关键设计决策
+
+1. **overflow_count 改为寄存器**：在 c_valid 时锁存最终值，避免 FEED 阶段的毛刺。代价：中间周期读到的是上一轮的值，对功能无影响。
+2. **feed_matrices 去掉 valid 控制**：让调用者决定何时 deassert valid，支持 back-to-back 测试模式。
+3. **en 信号保持组合逻辑**（Bug 11/12 不修）：改用寄存器 en 会改变累加时序，需要同步调整 FEED_CYCLES 和边界逻辑，改动范围太大，当前行为正确且有明确的时序依赖文档。
+
+---
+
 ## [2026-05-01] — 全代码审查：发现 Bug 11-21
 
 ### 修改内容

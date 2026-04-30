@@ -238,9 +238,7 @@ b_valid = 0;
 
 **验证**：`tb_bug_verify` 的 BUG TEST 1 单独实现了 DONE→FEED 测试，但 `tb_systolic_array` 的 Test 6 没有。
 
-**状态**：⬜ 未修复
-
-**建议**：在 `feed_matrices` 末尾去掉 `a_valid=0; b_valid=0`，让调用者控制何时 deassert valid。或新增一个 `feed_matrices_backto_back` task 不加额外那拍。
+**状态**：✅ 已修复（2026-05-01，feed_matrices 去掉末尾多余 posedge 和 valid 控制，由调用者管理。Test 6b 重写为真正的 DONE→FEED back-to-back）
 
 ---
 
@@ -255,9 +253,7 @@ if (errors == 0) $display("  → PASSED");  // ← 检查全局 errors，不是�
 else             $display("  → FAILED");
 ```
 
-**状态**：⬜ 未修复
-
-**建议**：在 task 开头记录 `errors_before = errors`，结尾检查 `errors == errors_before`。
+**状态**：✅ 已修复（2026-05-01，check_result 改用 errors_before 局部变量，只检查本次比较）
 
 ---
 
@@ -283,9 +279,7 @@ if (val == 127) saw_max = 1;  // ← 硬编码 127
 
 DATA_WIDTH=8 时正确，但参数化后检查失效。
 
-**状态**：⬜ 未修复
-
-**建议**：改为 `if (val == (1 << (DATA_WIDTH-1)) - 1) saw_max = 1;`
+**状态**：✅ 已修复（2026-05-01，改为 `(1 << (DATA_WIDTH-1)) - 1`）
 
 ---
 
@@ -303,9 +297,7 @@ always @(*) begin
 end
 ```
 
-**状态**：⬜ 未修复
-
-**建议**：改为寄存器输出，在 c_valid 时锁存最终值。或增加 `overflow_count_valid` 信号指示何时可读。
+**状态**：✅ 已修复（2026-05-01，overflow_count 改为寄存器输出，c_valid 时锁存）
 
 ---
 
@@ -320,9 +312,7 @@ else if (state == S_IDLE && state_next == S_FEED)
     cyc_cnt <= 0;
 ```
 
-**状态**：⬜ 未修复（行为可接受，但语义不明确）
-
-**建议**：DONE→FEED 时也清零，或增加 `cycle_count_valid` 信号在 c_valid 时锁存。
+**状态**：✅ 已修复（2026-05-01，清零条件改为 `state_next==S_FEED && state!=S_FEED`，DONE→FEED 时也重置）
 
 ---
 
@@ -350,9 +340,7 @@ Vivado 对 unpacked array 端口支持差，综合时可能报错或生成不可
 
 **现象**：`wave` 目标直接编译到 `$(SIM_DIR)`，与 `sim` 共享 build dir。每次切换 `--trace` 开关都要重新编译。
 
-**状态**：⬜ 未修复
-
-**建议**：`wave` 目标单独用 `$(BUILD)/wave` 目录。
+**状态**：✅ 已修复（2026-05-01，wave 目标使用独立 build dir `$(BUILD)/wave`）
 
 ---
 
@@ -362,9 +350,7 @@ Vivado 对 unpacked array 端口支持差，综合时可能报错或生成不可
 
 **现象**：`make all: sim` 只跑主仿真，不跑 `overflow` / `neg_overflow`。
 
-**状态**：⬜ 未修复
-
-**建议**：`all: sim overflow neg_overflow` 或新增 `make test` 跑全部。
+**状态**：✅ 已修复（2026-05-01，`all: sim overflow`）
 
 ---
 
@@ -372,6 +358,7 @@ Vivado 对 unpacked array 端口支持差，综合时可能报错或生成不可
 
 - **Bug 1+2 叠加**是当前所有仿真失败的根因（已修复）
 - **Bug 6** 是新发现的 RTL 设计缺陷，影响真正的 back-to-back 场景（已修复）
-- **Bug 11/12** 是 en 信号设计隐患，当前不触发但脆弱
-- **Bug 13** 是测试覆盖盲区，真正的 DONE→FEED back-to-back 未被 tb_systolic_array 验证
-- Bug 7-10 已修复，Bug 14-21 为新发现
+- **Bug 11/12** 是 en 信号设计隐患，当前不触发但脆弱（保持不动，改用寄存器 en 需同步调整 FEED_CYCLES）
+- **Bug 13** 已修复：feed_matrices 去掉多余 posedge，Test 6b 重写为真正 DONE→FEED
+- Bug 7-10, 13-14, 16-18, 20-21 已修复
+- Bug 15（test_name 截断）、Bug 19（unpacked array 端口）保持 🟡 待修复

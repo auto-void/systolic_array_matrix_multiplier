@@ -4,9 +4,6 @@
 // Overflow & Saturation Testbench
 // Uses small ACCUM_WIDTH (8-bit) to guarantee overflow with 4-bit data.
 // Verifies that PE saturates to MAX/MIN instead of wrapping.
-//
-// RTL timing: assert valid, @posedge (FSM enters FEED), then for each
-// feed cycle c: set data, @posedge. Same protocol as tb_systolic_array.
 // ============================================================================
 
 module tb_overflow;
@@ -77,47 +74,29 @@ module tb_overflow;
         $display("  DATA_WIDTH=%0d, ACCUM_WIDTH=%0d", DATA_WIDTH, ACCUM_WIDTH);
         $display("  Max accum = %0d", (1 << (ACCUM_WIDTH-1)) - 1);
 
-        feed_cycles = K_DIM + M_ROWS + N_COLS - 2;  // 4
+        feed_cycles = K_DIM + M_ROWS + N_COLS - 2;
 
-        // Protocol: pre-set cycle-0 data, assert valid, @posedge (FSM enters FEED)
-        // then for each remaining cycle: set data, @posedge
         wait (!busy);
-        @(posedge clk);  // ensure we are in IDLE (not DONE)
+        @(posedge clk);  // ensure we are in IDLE
 
         // Pre-set cycle-0 data BEFORE asserting valid
-        for (i = 0; i < M_ROWS; i = i + 1) begin
-            if (0 >= i && (0 - i) < K_DIM)
-                a_data[i] = -8;
-            else
-                a_data[i] = 0;
-        end
-        for (j = 0; j < N_COLS; j = j + 1) begin
-            if (0 >= j && (0 - j) < K_DIM)
-                b_data[j] = -8;
-            else
-                b_data[j] = 0;
-        end
+        for (i = 0; i < M_ROWS; i = i + 1)
+            a_data[i] = (0 >= i && (0 - i) < K_DIM) ? -8 : 0;
+        for (j = 0; j < N_COLS; j = j + 1)
+            b_data[j] = (0 >= j && (0 - j) < K_DIM) ? -8 : 0;
 
         a_valid = 1; b_valid = 1;
-        @(posedge clk);  // FSM: IDLE->FEED, feed_cnt=0, boundary has cycle-0 data
+        @(posedge clk);  // FSM: IDLE->FEED
 
         for (c = 1; c < feed_cycles; c = c + 1) begin
-            for (i = 0; i < M_ROWS; i = i + 1) begin
-                if (c >= i && (c - i) < K_DIM)
-                    a_data[i] = -8;
-                else
-                    a_data[i] = 0;
-            end
-            for (j = 0; j < N_COLS; j = j + 1) begin
-                if (c >= j && (c - j) < K_DIM)
-                    b_data[j] = -8;
-                else
-                    b_data[j] = 0;
-            end
+            for (i = 0; i < M_ROWS; i = i + 1)
+                a_data[i] = (c >= i && (c - i) < K_DIM) ? -8 : 0;
+            for (j = 0; j < N_COLS; j = j + 1)
+                b_data[j] = (c >= j && (c - j) < K_DIM) ? -8 : 0;
             @(posedge clk);
         end
 
-        // Final posedge: PE accumulates last cycle's product
+        // Final posedge
         for (i = 0; i < M_ROWS; i = i + 1) a_data[i] = 0;
         for (j = 0; j < N_COLS; j = j + 1) b_data[j] = 0;
         @(posedge clk);
@@ -149,9 +128,6 @@ module tb_overflow;
 
         // ============================================================
         // Test: Negative overflow saturation
-        // Use A=-8, B=7 for all elements. Each product = -56.
-        // Sum over K_DIM products = -56 * K_DIM.
-        // Triggers negative overflow when -56*K_DIM < -128 (i.e. K_DIM >= 3).
         // ============================================================
         $display("\n=== Negative overflow (saturation to MIN) ===");
         $display("  DATA_WIDTH=%0d, K_DIM=%0d, ACCUM_WIDTH=%0d", DATA_WIDTH, K_DIM, ACCUM_WIDTH);
@@ -167,7 +143,6 @@ module tb_overflow;
             wait (!busy);
             @(posedge clk);
 
-            // Pre-set cycle-0 data: A=-8, B=7
             for (i = 0; i < M_ROWS; i = i + 1)
                 a_data[i] = (0 >= i && (0 - i) < K_DIM) ? -8 : 0;
             for (j = 0; j < N_COLS; j = j + 1)
@@ -183,7 +158,6 @@ module tb_overflow;
                     b_data[j] = (c >= j && (c - j) < K_DIM) ? 7 : 0;
                 @(posedge clk);
             end
-            // Final posedge
             for (i = 0; i < M_ROWS; i = i + 1) a_data[i] = 0;
             for (j = 0; j < N_COLS; j = j + 1) b_data[j] = 0;
             @(posedge clk);

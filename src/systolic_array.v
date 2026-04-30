@@ -247,34 +247,42 @@ module systolic_array #(
     assign c_read_data = result_bank[row_sel][col_sel];
 
     // ----------------------------------------------------------------
-    // Overflow aggregation
+    // Overflow aggregation — registered, latched on c_valid
     // ----------------------------------------------------------------
-    reg ovf_accum;
     integer oi, oj;
+    reg [7:0] ovf_cnt_live;
     always @(*) begin
-        ovf_accum = 1'b0;
+        ovf_cnt_live = 0;
         for (oi = 0; oi < M_ROWS; oi = oi + 1)
             for (oj = 0; oj < N_COLS; oj = oj + 1)
-                ovf_accum = ovf_accum | pe_overflow[oi][oj];
+                ovf_cnt_live = ovf_cnt_live + 8'(pe_overflow[oi][oj]);
     end
-    assign any_overflow = ovf_accum;
+    wire ovf_any = (ovf_cnt_live != 0);
 
-    // Overflow count — how many PEs overflowed
-    reg [7:0] ovf_cnt;
-    always @(*) begin
-        ovf_cnt = 0;
-        for (oi = 0; oi < M_ROWS; oi = oi + 1)
-            for (oj = 0; oj < N_COLS; oj = oj + 1)
-                ovf_cnt = ovf_cnt + 8'(pe_overflow[oi][oj]);
+    reg ovf_any_reg;
+    reg [7:0] ovf_cnt_reg;
+    always @(posedge clk or negedge rst_n) begin
+        if (!rst_n) begin
+            ovf_any_reg <= 1'b0;
+            ovf_cnt_reg <= 8'd0;
+        end else if (c_valid) begin
+            ovf_any_reg <= ovf_any;
+            ovf_cnt_reg <= ovf_cnt_live;
+        end else if (state == S_IDLE) begin
+            ovf_any_reg <= 1'b0;
+            ovf_cnt_reg <= 8'd0;
+        end
     end
-    assign overflow_count = ovf_cnt;
+    assign any_overflow = ovf_any_reg;
+    assign overflow_count = ovf_cnt_reg;
 
     // Cycle counter — counts from start of feed to result valid
+    // Resets on both IDLE→FEED and DONE→FEED (back-to-back)
     reg [31:0] cyc_cnt;
     always @(posedge clk or negedge rst_n) begin
         if (!rst_n)
             cyc_cnt <= 0;
-        else if (state == S_IDLE && state_next == S_FEED)
+        else if (state_next == S_FEED && state != S_FEED)
             cyc_cnt <= 0;
         else if (busy)
             cyc_cnt <= cyc_cnt + 1;
